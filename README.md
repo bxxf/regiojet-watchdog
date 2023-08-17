@@ -19,9 +19,11 @@ This will start the server, and it should be running at [http://localhost:7900](
 ## How to Use
 
 ### Step 1: Fetch Available Routes
-Make a GET request to fetch available train routes based on `stationFromID`, `stationToID`, and `departureDate` parameters
+Make a GET request to fetch available train routes based on `stationFromID`, `stationToID`, and `departureDate` parameters.
+
 For example:
 ```http://localhost:7900/routes?stationFromID=372825002&stationToID=1841058000&departureDate=18.08.2023```
+
 This should return a response like this:
 ```json
 [
@@ -37,9 +39,10 @@ This should return a response like this:
 ]
 ```
 
-To get IDs of all stations you can run 
+To get IDs of all stations you can run:
 ```http://localhost:7900/constants```
-This will return a JSON of stations with their IDS in this format:
+
+With response in this format:
 ```json
 {
     "10204055": "Vienna - Schwechat Airport",
@@ -83,7 +86,7 @@ In the future, an endpoint will be available to cancel currently running watchdo
 A user-friendly interface is planned to simplify the process of creating new watchdogs. This UI will be accessible via a web browser and will provide a simple form to enter the necessary information to set up a new watchdog.
 
 ### Automatic reservations
-A future feature is planned to enable automatic reservations of available seats. When the watchdog detects that seats on a specified route have become available, it will automatically reserve a seat. This feature will ensure that you never miss out on an available seat by automating the reservation process, and will include customizable options such as
+A future feature is planned to enable automatic reservations of available seats. When the watchdog detects that seats on a specified route have become available, it will automatically reserve a seat. This feature will ensure that you never miss out on an available seat by automating the reservation process.ss
 
 ## Contributing
 Please feel free to open issues or submit pull requests.

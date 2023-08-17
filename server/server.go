@@ -83,7 +83,6 @@ func (s *Server) watchdogHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uuid := "watchdog:" + uuid.New().String()
 	routeInt, _ := strconv.Atoi(body.RouteID)
 	routeDetails, err := s.trainService.GetRouteDetails(routeInt, body.StationFromID, body.StationToID)
 	if err != nil {
@@ -94,6 +93,7 @@ func (s *Server) watchdogHandler(w http.ResponseWriter, r *http.Request) {
 	departureTime, _ := time.Parse(time.RFC3339, routeDetails.DepartureTime)
 	departureDuration := departureTime.Sub(time.Now())
 
+	uuid := "watchdog:" + uuid.New().String()
 	s.database.RedisClient.Set(context.Background(), uuid, body.WebhookURL+";;"+body.StationFromID+";;"+body.StationToID+";;"+body.RouteID, departureDuration)
 
 	res := struct {
