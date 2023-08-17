@@ -130,7 +130,6 @@ func (s *Server) periodicallyCheck() {
 					continue
 				}
 
-				// Parse the data
 				parts := strings.Split(value, ";;")
 				if len(parts) != 4 {
 					log.Println("Invalid value format for key", key)
@@ -138,7 +137,6 @@ func (s *Server) periodicallyCheck() {
 				}
 				webhookURL, stationFromID, stationToID, routeIDStr := parts[0], parts[1], parts[2], parts[3]
 
-				// Parse the route ID to int
 				routeID, err := strconv.Atoi(routeIDStr)
 				if err != nil {
 					log.Println("Failed to parse routeID:", err)
@@ -146,7 +144,6 @@ func (s *Server) periodicallyCheck() {
 				}
 
 				freeSeatsResponse, err := s.trainClient.GetFreeSeats(routeID, stationFromID, stationToID)
-				// Call the GetRouteDetails method with the parsed data
 				routeDetails, err := s.trainService.GetRouteDetails(routeID, stationFromID, stationToID)
 				if err != nil {
 					log.Println("Failed to fetch route details:", err)

@@ -146,9 +146,6 @@ func (c *TrainClient) fetchFreeSeats(routeId int, seatclass, stationFromID, stat
 	var freeSeatsResponse models.FreeSeatsResponse
 	var freeSeatsError models.FreeSeatsError
 
-	jsonBodyDebug, _ := json.Marshal(body)
-	c.logger.Info("Free seats response", zap.String("response", string(jsonBodyDebug)))
-
 	err = json.NewDecoder(resp.Body).Decode(&freeSeatsResponse)
 	if err != nil {
 		err = json.NewDecoder(resp.Body).Decode(&freeSeatsError)
