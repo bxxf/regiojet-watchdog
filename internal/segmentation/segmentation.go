@@ -160,8 +160,10 @@ func (s *SegmentationService) checkSegment(currentStation, nextStation client.St
 			continue
 		}
 
+		var segment map[string]interface{}
+
 		if details.FreeSeatsCount > 0 {
-			segment := map[string]interface{}{
+			segment = map[string]interface{}{
 				"FromStationID": strconv.Itoa(currentStation.StationID),
 				"ToStationID":   strconv.Itoa(nextStation.StationID),
 				"RouteID":       route.ID,
@@ -173,6 +175,7 @@ func (s *SegmentationService) checkSegment(currentStation, nextStation client.St
 			}
 			return segment, nil
 		}
+
 	}
 
 	return nil, fmt.Errorf("No free seats available from station %s to station %s", strconv.Itoa(currentStation.StationID), strconv.Itoa(nextStation.StationID))

@@ -93,8 +93,17 @@ func (s *DiscordService) NotifyDiscordAlternatives(allRoutes [][]map[string]stri
 				break
 			}
 
-			segmentsDescription += fmt.Sprintf("**%s -> %s** (Departure: %s, Arrival: %s) \n *Free Seats: %s, Price: %s CZK*\n",
-				segment["from"], segment["to"], segment["departureTime"], segment["arrivalTime"], segment["freeSeats"], segment["price"])
+			if i == 0 {
+				segmentsDescription += fmt.Sprintf("**%s -> %s** (Departure: %s, Arrival: %s) \n *Free Seats: %s, Price: %s CZK*\n",
+					segment["from"], route[i+1]["from"], segment["departureTime"], segment["arrivalTime"], segment["freeSeats"], segment["price"])
+			} else {
+				segmentsDescription += fmt.Sprintf("**%s -> %s** (Departure: %s, Arrival: %s) \n *Free Seats: %s, Price: %s CZK*\n",
+
+					segment["from"], segment["to"], segment["departureTime"], segment["arrivalTime"], segment["freeSeats"], segment["price"])
+			}
+
+			fmt.Printf("from %s to %s", segment["from"], segment["to"])
+
 		}
 
 		alternative := map[string]interface{}{
