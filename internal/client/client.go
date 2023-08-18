@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -24,6 +25,22 @@ type Route struct {
 	PriceFrom     float64 `json:"priceFrom"`
 	PriceTo       float64 `json:"priceTo"`
 	FreeSeats     int     `json:"freeSeatsCount"`
+}
+
+type Stop struct {
+	StationID int      `json:"stationId"`
+	Index     int      `json:"index"`
+	Departure string   `json:"departure"`
+	Arrival   string   `json:"arrival"`
+	Symbols   []string `json:"symbols"`
+	Platform  string   `json:"platform"`
+}
+
+type TimetableResponse struct {
+	ConnectionID int    `json:"connectionId"`
+	FromCityName string `json:"fromCityName"`
+	ToCityName   string `json:"toCityName"`
+	Stations     []Stop `json:"stations"`
 }
 
 func NewTrainClient(logger *zap.Logger) *TrainClient {
@@ -133,6 +150,7 @@ func (c *TrainClient) fetchFreeSeats(routeId int, seatclass, stationFromID, stat
 	}
 
 	jsonBody, err := json.Marshal(body)
+
 	if err != nil {
 		return nil, &models.FreeSeatsError{Message: err.Error()}
 	}
@@ -160,15 +178,52 @@ func (c *TrainClient) fetchFreeSeats(routeId int, seatclass, stationFromID, stat
 
 func (c *TrainClient) GetFreeSeats(routeID int, stationFromID, stationToID string) (models.FreeSeatsResponse, error) {
 	freeSeatsResponse0, error := c.fetchFreeSeats(routeID, "C0", stationFromID, stationToID)
+	freeSeatsResponse1, error := c.fetchFreeSeats(routeID, "C1", stationFromID, stationToID)
 	freeSeatsResponse2, error := c.fetchFreeSeats(routeID, "C2", stationFromID, stationToID)
 
 	if error != nil {
 		c.logger.Info("Failed to fetch data", zap.String("error", error.Message))
 		return nil, fmt.Errorf(error.Message)
 	}
+	if freeSeatsResponse0 == nil && freeSeatsResponse2 == nil && freeSeatsResponse1 == nil {
+		return nil, fmt.Errorf("Failed to fetch data")
+	}
+
+	if freeSeatsResponse0 == nil {
+		freeSeatsResponse0 = &models.FreeSeatsResponse{}
+	}
+	if freeSeatsResponse1 == nil {
+		freeSeatsResponse1 = &models.FreeSeatsResponse{}
+	}
+	if freeSeatsResponse2 == nil {
+		freeSeatsResponse2 = &models.FreeSeatsResponse{}
+	}
 
 	freeSeatsResponse := append(*freeSeatsResponse0, *freeSeatsResponse2...)
+	freeSeatsResponse = append(freeSeatsResponse, *freeSeatsResponse1...)
 
 	return freeSeatsResponse, nil
 
+}
+
+func (client *TrainClient) FetchStops(routeID string) (*TimetableResponse, error) {
+	// Construct the URL for the request
+	url := fmt.Sprintf("https://brn-ybus-pubapi.sa.cz/restapi/consts/timetables/%s", routeID)
+
+	// Make the HTTP request
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Println("Failed to fetch stops:", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var timetable TimetableResponse
+	if err := json.NewDecoder(resp.Body).Decode(&timetable); err != nil {
+		log.Println("Failed to decode JSON:", err)
+		return nil, err
+	}
+
+	// Return the stops information
+	return &timetable, nil
 }

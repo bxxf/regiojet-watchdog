@@ -128,3 +128,58 @@ func (s *TrainService) GetRouteDetails(routeID int, fromStationID, toStationID s
 		ArrivalTime:       apiResponse.ArrivalTime,
 	}, nil
 }
+
+func (s *TrainService) NotifyDiscordAlternatives(allRoutes [][]map[string]string, webhookURL string) {
+	var alternatives []map[string]interface{}
+
+	for _, route := range allRoutes {
+		var segmentsDescription string
+		totalPrice := route[len(route)-1]["totalPrice"]
+
+		for i, segment := range route {
+			if i == len(route)-1 {
+				break
+			}
+			segmentsDescription += fmt.Sprintf("From %s to %s (Departure: %s, Arrival: %s, Free Seats: %s, Price: %s CZK)\n",
+				segment["from"], segment["to"], segment["departureTime"], segment["arrivalTime"], segment["freeSeats"], segment["price"])
+		}
+
+		alternative := map[string]interface{}{
+			"name":   fmt.Sprintf("Alternative route with Total Price: %s CZK", totalPrice),
+			"value":  segmentsDescription,
+			"inline": false,
+		}
+
+		alternatives = append(alternatives, alternative)
+	}
+
+	payload := map[string]interface{}{
+		"content": "",
+		"embeds": []map[string]interface{}{
+			{
+				"title":  "Alternative routes found (from least to most seat changes)",
+				"color":  3447003,
+				"fields": alternatives,
+				"footer": map[string]interface{}{
+					"text": fmt.Sprintf("Last updated at %s", time.Now().Format("15:04:05")),
+				},
+			},
+		},
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		s.logger.Fatal("Failed to marshal JSON payload", zap.Error(err))
+		return
+	}
+
+	resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(jsonPayload))
+	if err != nil {
+		s.logger.Fatal("Failed to send Discord notification", zap.Error(err))
+	} else {
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			s.logger.Error("Failed to send Discord notification", zap.Int("status", resp.StatusCode))
+		}
+	}
+}

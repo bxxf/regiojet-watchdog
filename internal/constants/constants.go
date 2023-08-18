@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -71,7 +70,7 @@ func (c *ConstantsClient) FetchConstants() (map[string]string, error) {
 			}
 		}
 	}
-	log.Default().Printf("Stations fetched: %d", len(stations))
+	c.logger.Info("Fetched stations", zap.Int("count", len(stations)))
 	return stations, nil
 }
 

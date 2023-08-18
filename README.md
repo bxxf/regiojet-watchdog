@@ -1,6 +1,13 @@
 # RegioJet Watchdog
-A service to monitor train routes and notify via Discord when seats are available.
+RegioJet Watchdog is a tool designed to help travelers secure their journey by keeping tabs on seat availability. This service constantly monitors specific train routes and sends notifications via Discord as soon as seats on those routes become available. Additionally, it can find alternative routes to help you reach your destination even when your primary option is fully booked.
 
+## Features
+
+### Free Seat Notifications
+Once you set up a "watchdog", this service will continuously monitor a specified train route and check for available seats. When seats are found to be available, you will receive an instant notification via Discord, allowing you to book your seat as soon as possible.
+
+### Alternative Routes Finder:
+In case your primary route is fully booked, this service can suggest alternative options on tickets that involve switching your seat, but not the train itself. This service breaks down your journey into smaller segments between intermediate stations. For each segment, it checks for available seats and suggests options where you may need to switch your seat at certain stations. For example, if you are traveling from Station A to Station D, it might find availability from A to B, a different seat from B to C, and yet another seat from C to D, all on the same train.
 ## Prerequisites
 - Golang (version 1.20 or higher)
 - Redis server
