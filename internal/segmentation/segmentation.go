@@ -150,7 +150,7 @@ func (s *SegmentationService) checkSegment(currentStation, nextStation client.St
 	for _, route := range routes {
 		parsedCurrentDeparture, _ := time.Parse("15:04:05.000", currentStation.Departure)
 		if route.DepartureTime != parsedCurrentDeparture.Format("15:04") {
-			log.Printf("Departure time mismatch: %s != %s", route.DepartureTime, parsedCurrentDeparture.Format("15:04"))
+			log.Printf("comparing routes: %s != %s", route.DepartureTime, parsedCurrentDeparture.Format("15:04"))
 			continue
 		}
 		rID, _ := strconv.Atoi(route.ID)
