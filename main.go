@@ -6,8 +6,9 @@ import (
 	"github.com/bxxf/regiojet-watchdog/internal/constants"
 	"github.com/bxxf/regiojet-watchdog/internal/database"
 	"github.com/bxxf/regiojet-watchdog/internal/logger"
+	"github.com/bxxf/regiojet-watchdog/internal/segmentation"
+	"github.com/bxxf/regiojet-watchdog/internal/server"
 	"github.com/bxxf/regiojet-watchdog/internal/service"
-	"github.com/bxxf/regiojet-watchdog/server"
 	"go.uber.org/fx"
 )
 
@@ -19,6 +20,7 @@ func main() {
 			service.NewTrainService,
 			logger.NewLogger,
 			constants.NewConstantsClient,
+			segmentation.NewSegmentationService,
 			server.NewServer,
 			database.NewDatabaseClient,
 		),

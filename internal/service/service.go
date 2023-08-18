@@ -132,15 +132,20 @@ func (s *TrainService) GetRouteDetails(routeID int, fromStationID, toStationID s
 func (s *TrainService) NotifyDiscordAlternatives(allRoutes [][]map[string]string, webhookURL string) {
 	var alternatives []map[string]interface{}
 
+	var routeInfo map[string]string
 	for _, route := range allRoutes {
 		var segmentsDescription string
 		totalPrice := route[len(route)-1]["totalPrice"]
+
+		routeInfo = route[0]
+		routeInfo["to"] = route[len(route)-2]["to"]
 
 		for i, segment := range route {
 			if i == len(route)-1 {
 				break
 			}
-			segmentsDescription += fmt.Sprintf("From %s to %s (Departure: %s, Arrival: %s, Free Seats: %s, Price: %s CZK)\n",
+
+			segmentsDescription += fmt.Sprintf("**%s -> %s** (Departure: %s, Arrival: %s) \n *Free Seats: %s, Price: %s CZK*\n",
 				segment["from"], segment["to"], segment["departureTime"], segment["arrivalTime"], segment["freeSeats"], segment["price"])
 		}
 
@@ -157,7 +162,7 @@ func (s *TrainService) NotifyDiscordAlternatives(allRoutes [][]map[string]string
 		"content": "",
 		"embeds": []map[string]interface{}{
 			{
-				"title":  "Alternative routes found (from least to most seat changes)",
+				"title":  fmt.Sprintf("Alternative routes %s -> %s (%s)", routeInfo["from"], routeInfo["to"], routeInfo["departureDate"]),
 				"color":  3447003,
 				"fields": alternatives,
 				"footer": map[string]interface{}{
