@@ -8,6 +8,9 @@ Once you set up a "watchdog", this service will continuously monitor a specified
 
 ### Alternative Routes Finder:
 In case your primary route is fully booked, this service can suggest alternative options on tickets that involve switching your seat, but not the train itself. This service breaks down your journey into smaller segments between intermediate stations. For each segment, it checks for available seats and suggests options where you may need to switch your seat at certain stations. For example, if you are traveling from Station A to Station D, it might find availability from A to B, a different seat from B to C, and yet another seat from C to D, all on the same train.
+
+<img src="https://github.com/bxxf/regiojet-watchdog/assets/43238984/134a9286-829b-4285-a282-adda0b185b42" width="300">
+
 ## Prerequisites
 - Golang (version 1.20 or higher)
 - Redis server
