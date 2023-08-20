@@ -38,9 +38,9 @@ func (s *Server) run() {
 	http.HandleFunc(("/watchdog"), s.watchdogHandler)
 	http.HandleFunc("/constants", s.constantsHandler)
 
-	port := ":7900"
+	port := s.config.Port
 	log.Printf("Server is running on port %s...\n", port)
-	log.Fatal(http.ListenAndServe(port, nil))
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 func (s *Server) getRoutesHandler(w http.ResponseWriter, r *http.Request) {

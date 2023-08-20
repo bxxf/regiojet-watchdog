@@ -3,7 +3,6 @@ package segmentation
 import (
 	"fmt"
 	"log"
-	"sort"
 	"strconv"
 	"time"
 
@@ -12,69 +11,84 @@ import (
 	"github.com/bxxf/regiojet-watchdog/internal/models"
 )
 
+const timeFormat = "15:04:05.000"
+
 type SegmentationService struct {
 	trainClient *client.TrainClient
 	constants   map[string]string
 }
 
-func NewSegmentationService(trainClient *client.TrainClient, constantsClient *constants.ConstantsClient) *SegmentationService {
-	constMap, _ := constantsClient.FetchConstants()
+func NewSegmentationService(trainClient *client.TrainClient, constantsClient *constants.ConstantsClient) (*SegmentationService, error) {
+	constMap, err := constantsClient.FetchConstants()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch constants: %v", err)
+	}
+
 	return &SegmentationService{
 		trainClient: trainClient,
 		constants:   constMap,
-	}
+	}, nil
 }
 
 func (s *SegmentationService) FindAvailableSegments(routeID, stationFromID, stationToID, departureDate string) ([][]map[string]string, error) {
-	resp, err := s.trainClient.FetchStops(routeID)
+	stationsResp, err := s.trainClient.FetchStops(routeID)
 	if err != nil {
-		log.Println("Failed to fetch stops:", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch stops: %v", err)
 	}
 
-	stations := resp.Stations
-
 	var currentStation models.Stop
-
-	for _, station := range stations {
+	for _, station := range stationsResp.Stations {
 		if strconv.Itoa(station.StationID) == stationFromID {
 			currentStation = station
 			break
 		}
 	}
 
-	paths, err := s.findPath(currentStation, stationToID, stations, departureDate)
-	log.Default().Printf("Found %d paths", len(paths))
+	paths, err := s.findPath(currentStation, stationToID, stationsResp.Stations, departureDate)
 	if err != nil {
-		log.Println("Failed to find path:", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to find path: %v", err)
 	}
-	sort.Slice(paths, func(i, j int) bool {
-		return len(paths[i]) < len(paths[j])
-	})
 
+	return s.formatPaths(paths), nil
+}
+
+func (s *SegmentationService) formatPaths(paths [][]map[string]interface{}) [][]map[string]string {
 	var allPaths [][]map[string]string
 
 	for _, path := range paths {
 		var onePath []map[string]string
-
 		var totalPrice float64
+
 		for _, segment := range path {
 			niceSegment := make(map[string]string)
+			fromStationName, ok := s.constants[segment["FromStationID"].(string)]
+			if !ok {
+				log.Printf("Station ID not found in constants: %v", segment["FromStationID"])
+				continue
+			}
 
-			fromStationName := s.constants[segment["FromStationID"].(string)]
-			toStationName := s.constants[segment["ToStationID"].(string)]
+			toStationName, ok := s.constants[segment["ToStationID"].(string)]
+			if !ok {
+				log.Printf("Station ID not found in constants: %v", segment["ToStationID"])
+				continue
+			}
 
-			departureTime, _ := time.Parse(time.RFC3339, segment["DepartureTime"].(string))
-			arrivalTime, _ := time.Parse(time.RFC3339, segment["ArrivalTime"].(string))
+			departureTime, err := time.Parse(time.RFC3339, segment["DepartureTime"].(string))
+			if err != nil {
+				log.Printf("Failed to parse departure time: %v", err)
+				continue
+			}
+
+			arrivalTime, err := time.Parse(time.RFC3339, segment["ArrivalTime"].(string))
+			if err != nil {
+				log.Printf("Failed to parse arrival time: %v", err)
+				continue
+			}
+
 			niceSegment["from"] = fromStationName
 			niceSegment["to"] = toStationName
 			niceSegment["price"] = fmt.Sprintf("%.2f", segment["Price"].(float64))
 			niceSegment["departureTime"] = departureTime.Format("15:04")
-			if len(onePath) == 0 {
-				departureTime, _ = time.Parse("15:04:05.000", currentStation.Departure)
-				niceSegment["departureTime"] = departureTime.Format("15:04")
-			}
 			niceSegment["arrivalTime"] = arrivalTime.Format("15:04")
 			niceSegment["freeSeats"] = fmt.Sprintf("%d", segment["FreeSeats"].(int))
 			niceSegment["departureDate"] = segment["DepartureDate"].(string)
@@ -83,11 +97,10 @@ func (s *SegmentationService) FindAvailableSegments(routeID, stationFromID, stat
 			onePath = append(onePath, niceSegment)
 		}
 		onePath = append(onePath, map[string]string{"totalPrice": fmt.Sprintf("%.2f", totalPrice)})
-
 		allPaths = append(allPaths, onePath)
 	}
 
-	return allPaths, nil
+	return allPaths
 }
 
 func (s *SegmentationService) findPath(currentStation models.Stop, targetStationID string, stations []models.Stop, departureDate string) ([][]map[string]interface{}, error) {

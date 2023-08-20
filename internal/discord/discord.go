@@ -29,17 +29,22 @@ func (s *DiscordService) NotifyDiscord(freeSeatsDetails models.FreeSeatsResponse
 	departureTime, _ := time.Parse(time.RFC3339, routeDeparture)
 	departureDate := departureTime.Format("02.01.2006")
 
-	var fields []map[string]interface{} = []map[string]interface{}{}
+	var seatCount map[int]int = map[int]int{}
 	for _, section := range freeSeatsDetails {
 		for _, vehicle := range section.Vehicles {
-			if len(vehicle.FreeSeats) > 0 {
-				field := map[string]interface{}{
-					"name":   fmt.Sprintf("Vehicle Number: %d", vehicle.VehicleNumber),
-					"value":  fmt.Sprintf("Number of Free Seats: %d", len(vehicle.FreeSeats)),
-					"inline": true,
-				}
-				fields = append(fields, field)
+			seatCount[vehicle.VehicleNumber] += len(vehicle.FreeSeats)
+		}
+	}
+
+	var fields []map[string]interface{} = []map[string]interface{}{}
+	for vehicleNumber, count := range seatCount {
+		if count > 0 {
+			field := map[string]interface{}{
+				"name":   fmt.Sprintf("Vehicle Number: %d", vehicleNumber),
+				"value":  fmt.Sprintf("Number of Free Seats: %d", count),
+				"inline": true,
 			}
+			fields = append(fields, field)
 		}
 	}
 

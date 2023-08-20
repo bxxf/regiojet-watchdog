@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	RedisURL string
+	Port     string
 }
 
 func LoadConfig() Config {
@@ -28,7 +29,13 @@ func LoadConfig() Config {
 		log.Fatal("REDIS_URL must be set")
 	}
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "7900"
+	}
+
 	return Config{
 		RedisURL: redisURL,
+		Port:     port,
 	}
 }
