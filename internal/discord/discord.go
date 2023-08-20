@@ -21,10 +21,14 @@ func NewDiscordService(logger *zap.Logger) *DiscordService {
 	}
 }
 
-func (s *DiscordService) NotifyDiscord(freeSeatsDetails models.FreeSeatsResponse, routeDetails models.RouteDetails, webhookURL string) {
+func (s *DiscordService) NotifyDiscord(freeSeatsDetails models.FreeSeatsResponse, routeDetails models.RouteDetails, routeDeparture, webhookURL string) {
 	if routeDetails.FreeSeatsCount == 0 {
 		return
 	}
+
+	departureTime, _ := time.Parse(time.RFC3339, routeDeparture)
+	departureDate := departureTime.Format("02.01.2006")
+
 	var fields []map[string]interface{} = []map[string]interface{}{}
 	for _, section := range freeSeatsDetails {
 		for _, vehicle := range section.Vehicles {
@@ -49,7 +53,7 @@ func (s *DiscordService) NotifyDiscord(freeSeatsDetails models.FreeSeatsResponse
 		"content": "",
 		"embeds": []map[string]interface{}{
 			{
-				"title":       fmt.Sprintf("New tickets available (%s -> %s) - %s -> %s", routeDetails.DepartureCityName, routeDetails.ArrivalCityName, formattedDepartureString, formattedArrivalString),
+				"title":       fmt.Sprintf("Tickets available (%s -> %s) - %s -> %s [%s]", routeDetails.DepartureCityName, routeDetails.ArrivalCityName, formattedDepartureString, formattedArrivalString, departureDate),
 				"description": fmt.Sprintf("Travel Time: %s, Free seats count: %d", routeDetails.TravelTime, routeDetails.FreeSeatsCount),
 				"color":       3447003,
 				"fields":      fields,
@@ -86,23 +90,26 @@ func (s *DiscordService) NotifyDiscordAlternatives(allRoutes [][]map[string]stri
 		totalPrice := route[len(route)-1]["totalPrice"]
 
 		routeInfo = route[0]
-		routeInfo["to"] = route[len(route)-2]["to"]
+
+		if len(route) > 2 {
+			routeInfo["to"] = route[len(route)-2]["to"]
+		}
 
 		for i, segment := range route {
 			if i == len(route)-1 {
 				break
 			}
 
-			if i == 0 {
-				segmentsDescription += fmt.Sprintf("**%s -> %s** (Departure: %s, Arrival: %s) \n *Free Seats: %s, Price: %s CZK*\n",
-					segment["from"], route[i+1]["from"], segment["departureTime"], segment["arrivalTime"], segment["freeSeats"], segment["price"])
+			var realInfoTo string
+			if i == 0 && len(route) > 2 {
+				realInfoTo = route[i+1]["from"]
+			} else if len(route) < 3 {
+				realInfoTo = routeInfo["to"]
 			} else {
-				segmentsDescription += fmt.Sprintf("**%s -> %s** (Departure: %s, Arrival: %s) \n *Free Seats: %s, Price: %s CZK*\n",
-
-					segment["from"], segment["to"], segment["departureTime"], segment["arrivalTime"], segment["freeSeats"], segment["price"])
+				realInfoTo = segment["to"]
 			}
-
-			fmt.Printf("from %s to %s", segment["from"], segment["to"])
+			segmentsDescription += fmt.Sprintf("**%s -> %s** (Departure: %s, Arrival: %s) \n *Free Seats: %s, Price: %s CZK*\n",
+				segment["from"], realInfoTo, segment["departureTime"], segment["arrivalTime"], segment["freeSeats"], segment["price"])
 
 		}
 

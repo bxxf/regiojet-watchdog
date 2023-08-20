@@ -10,7 +10,6 @@ import (
 	"github.com/bxxf/regiojet-watchdog/internal/logger"
 	"github.com/bxxf/regiojet-watchdog/internal/segmentation"
 	"github.com/bxxf/regiojet-watchdog/internal/server"
-	"github.com/bxxf/regiojet-watchdog/internal/service"
 	"go.uber.org/fx"
 )
 
@@ -19,7 +18,6 @@ func main() {
 		fx.Provide(
 			config.LoadConfig,
 			client.NewTrainClient,
-			service.NewTrainService,
 			logger.NewLogger,
 			constants.NewConstantsClient,
 			checker.NewChecker,

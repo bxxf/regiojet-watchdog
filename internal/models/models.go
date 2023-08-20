@@ -61,3 +61,28 @@ type RouteDetailsResponse struct {
 		TravelTime string `json:"travelTime"`
 	} `json:"sections"`
 }
+
+type Route struct {
+	ID            string  `json:"id"`
+	DepartureTime string  `json:"departureTime"`
+	ArrivalTime   string  `json:"arrivalTime"`
+	PriceFrom     float64 `json:"priceFrom"`
+	PriceTo       float64 `json:"priceTo"`
+	FreeSeats     int     `json:"freeSeatsCount"`
+}
+
+type TimetableResponse struct {
+	ConnectionID int    `json:"connectionId"`
+	FromCityName string `json:"fromCityName"`
+	ToCityName   string `json:"toCityName"`
+	Stations     []Stop `json:"stations"`
+}
+
+type Stop struct {
+	StationID int      `json:"stationId"`
+	Index     int      `json:"index"`
+	Departure string   `json:"departure"`
+	Arrival   string   `json:"arrival"`
+	Symbols   []string `json:"symbols"`
+	Platform  string   `json:"platform"`
+}

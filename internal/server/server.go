@@ -12,27 +12,24 @@ import (
 	"github.com/bxxf/regiojet-watchdog/internal/config"
 	"github.com/bxxf/regiojet-watchdog/internal/constants"
 	"github.com/bxxf/regiojet-watchdog/internal/database"
-	"github.com/bxxf/regiojet-watchdog/internal/service"
 	"github.com/google/uuid"
 	"go.uber.org/fx"
 )
 
 type Server struct {
-	trainClient  *client.TrainClient
-	trainService *service.TrainService
-	config       config.Config
-	constants    map[string]string
-	database     *database.DatabaseClient
+	trainClient *client.TrainClient
+	config      config.Config
+	constants   map[string]string
+	database    *database.DatabaseClient
 }
 
-func NewServer(trainClient *client.TrainClient, trainService *service.TrainService, config config.Config, constantsClient *constants.ConstantsClient, database *database.DatabaseClient) *Server {
+func NewServer(trainClient *client.TrainClient, config config.Config, constantsClient *constants.ConstantsClient, database *database.DatabaseClient) *Server {
 	constMap, _ := constantsClient.FetchConstants()
 	return &Server{
-		trainClient:  trainClient,
-		trainService: trainService,
-		config:       config,
-		constants:    constMap,
-		database:     database,
+		trainClient: trainClient,
+		config:      config,
+		constants:   constMap,
+		database:    database,
 	}
 }
 
@@ -84,7 +81,7 @@ func (s *Server) watchdogHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	routeInt, _ := strconv.Atoi(body.RouteID)
-	routeDetails, err := s.trainService.GetRouteDetails(routeInt, body.StationFromID, body.StationToID)
+	routeDetails, err := s.trainClient.GetRouteDetails(routeInt, body.StationFromID, body.StationToID)
 	if err != nil {
 		http.Error(w, "Failed to fetch route details", http.StatusInternalServerError)
 		log.Println("Failed to fetch route details:", err)

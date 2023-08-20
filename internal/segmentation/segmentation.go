@@ -9,16 +9,15 @@ import (
 
 	"github.com/bxxf/regiojet-watchdog/internal/client"
 	"github.com/bxxf/regiojet-watchdog/internal/constants"
-	"github.com/bxxf/regiojet-watchdog/internal/service"
+	"github.com/bxxf/regiojet-watchdog/internal/models"
 )
 
 type SegmentationService struct {
-	trainClient  *client.TrainClient
-	trainService *service.TrainService
-	constants    map[string]string
+	trainClient *client.TrainClient
+	constants   map[string]string
 }
 
-func NewSegmentationService(trainClient *client.TrainClient, trainService *service.TrainService, constantsClient *constants.ConstantsClient) *SegmentationService {
+func NewSegmentationService(trainClient *client.TrainClient, constantsClient *constants.ConstantsClient) *SegmentationService {
 	constMap, _ := constantsClient.FetchConstants()
 	return &SegmentationService{
 		trainClient: trainClient,
@@ -35,7 +34,7 @@ func (s *SegmentationService) FindAvailableSegments(routeID, stationFromID, stat
 
 	stations := resp.Stations
 
-	var currentStation client.Stop
+	var currentStation models.Stop
 
 	for _, station := range stations {
 		if strconv.Itoa(station.StationID) == stationFromID {
@@ -91,7 +90,7 @@ func (s *SegmentationService) FindAvailableSegments(routeID, stationFromID, stat
 	return allPaths, nil
 }
 
-func (s *SegmentationService) findPath(currentStation client.Stop, targetStationID string, stations []client.Stop, departureDate string) ([][]map[string]interface{}, error) {
+func (s *SegmentationService) findPath(currentStation models.Stop, targetStationID string, stations []models.Stop, departureDate string) ([][]map[string]interface{}, error) {
 
 	paths := make([][]map[string]interface{}, 0)
 	currPath := make([]map[string]interface{}, 0)
@@ -101,7 +100,7 @@ func (s *SegmentationService) findPath(currentStation client.Stop, targetStation
 	return paths, nil
 }
 
-func (s *SegmentationService) findPathRecursive(currentStation client.Stop, targetStationID string, stations []client.Stop, currPath []map[string]interface{}, paths *[][]map[string]interface{}, visited map[string]bool, departureDate string, index int) {
+func (s *SegmentationService) findPathRecursive(currentStation models.Stop, targetStationID string, stations []models.Stop, currPath []map[string]interface{}, paths *[][]map[string]interface{}, visited map[string]bool, departureDate string, index int) {
 	if strconv.Itoa(currentStation.StationID) == targetStationID {
 		newPath := append([]map[string]interface{}{}, currPath...)
 		*paths = append(*paths, newPath)
@@ -110,7 +109,7 @@ func (s *SegmentationService) findPathRecursive(currentStation client.Stop, targ
 
 	visited[strconv.Itoa(currentStation.StationID)] = true
 
-	var currStation client.Stop = currentStation
+	var currStation models.Stop = currentStation
 	for _, station := range stations {
 		if station.Index < currStation.Index {
 			continue
@@ -139,7 +138,7 @@ func (s *SegmentationService) findPathRecursive(currentStation client.Stop, targ
 	visited[strconv.Itoa(currentStation.StationID)] = false
 }
 
-func (s *SegmentationService) checkSegment(currentStation, nextStation client.Stop, departureDate string) (map[string]interface{}, error) {
+func (s *SegmentationService) checkSegment(currentStation, nextStation models.Stop, departureDate string) (map[string]interface{}, error) {
 
 	routes, err := s.trainClient.FetchRoutes(strconv.Itoa(currentStation.StationID), strconv.Itoa(nextStation.StationID), departureDate, "CZK")
 	if err != nil {
@@ -154,7 +153,7 @@ func (s *SegmentationService) checkSegment(currentStation, nextStation client.St
 			continue
 		}
 		rID, _ := strconv.Atoi(route.ID)
-		details, err := s.trainService.GetRouteDetails(rID, strconv.Itoa(currentStation.StationID), strconv.Itoa(nextStation.StationID))
+		details, err := s.trainClient.GetRouteDetails(rID, strconv.Itoa(currentStation.StationID), strconv.Itoa(nextStation.StationID))
 		if err != nil {
 			log.Println("Failed to fetch free seats:", err)
 			continue

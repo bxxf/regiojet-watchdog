@@ -3,8 +3,8 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,34 +13,11 @@ import (
 	"go.uber.org/zap"
 )
 
+const baseURL = "https://brn-ybus-pubapi.sa.cz/restapi"
+
 type TrainClient struct {
 	logger *zap.Logger
 	client *http.Client
-}
-
-type Route struct {
-	ID            string  `json:"id"`
-	DepartureTime string  `json:"departureTime"`
-	ArrivalTime   string  `json:"arrivalTime"`
-	PriceFrom     float64 `json:"priceFrom"`
-	PriceTo       float64 `json:"priceTo"`
-	FreeSeats     int     `json:"freeSeatsCount"`
-}
-
-type Stop struct {
-	StationID int      `json:"stationId"`
-	Index     int      `json:"index"`
-	Departure string   `json:"departure"`
-	Arrival   string   `json:"arrival"`
-	Symbols   []string `json:"symbols"`
-	Platform  string   `json:"platform"`
-}
-
-type TimetableResponse struct {
-	ConnectionID int    `json:"connectionId"`
-	FromCityName string `json:"fromCityName"`
-	ToCityName   string `json:"toCityName"`
-	Stations     []Stop `json:"stations"`
 }
 
 func NewTrainClient(logger *zap.Logger) *TrainClient {
@@ -50,28 +27,37 @@ func NewTrainClient(logger *zap.Logger) *TrainClient {
 	}
 }
 
-func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, currency string) ([]Route, error) {
+func (c *TrainClient) makeAPIRequest(method, url string, body []byte, headers map[string]string) (*http.Response, error) {
+	req, err := http.NewRequest(method, baseURL+url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	return c.client.Do(req)
+}
+
+func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, currency string) ([]models.Route, error) {
 	parsedDepartureDate, err := time.Parse("02.01.2006", departureDate)
 	if err != nil {
 		return nil, err
 	}
 	formattedDepartureDate := parsedDepartureDate.Format("2006-01-02")
-	url := fmt.Sprintf(
-		"https://brn-ybus-pubapi.sa.cz/restapi/routes/search/simple?fromLocationId=%s&fromLocationType=STATION&toLocationId=%s&toLocationType=STATION&departureDate=%s",
+	urlPath := fmt.Sprintf("/routes/search/simple?fromLocationId=%s&fromLocationType=STATION&toLocationId=%s&toLocationType=STATION&departureDate=%s",
 		stationFromID,
 		stationToID,
 		formattedDepartureDate,
 	)
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
+	headers := map[string]string{
+		"X-Currency": currency,
 	}
-
-	req.Header.Set("X-Currency", currency)
-
-	resp, err := c.client.Do(req)
+	resp, err := c.makeAPIRequest("GET", urlPath, nil, headers)
 	if err != nil {
+		fmt.Printf("error in fetching routes %+v\n", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -81,7 +67,7 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 		return nil, err
 	}
 
-	var routes []Route
+	var routes []models.Route
 	for _, ticket := range responseJson.Routes {
 		vehicleType := ticket.VehicleTypes[0]
 		containsBus := false
@@ -116,7 +102,7 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 
 		arrivalString := arrivalTime.Format("15:04")
 
-		routes = append(routes, Route{
+		routes = append(routes, models.Route{
 			ID:            ticket.ID,
 			DepartureTime: departureString,
 			ArrivalTime:   arrivalString,
@@ -131,13 +117,19 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 }
 
 func (c *TrainClient) fetchFreeSeats(routeId int, seatclass, stationFromID, stationToID string) (*models.FreeSeatsResponse, *models.FreeSeatsError) {
-	url := fmt.Sprintf("https://brn-ybus-pubapi.sa.cz/restapi/routes/%d/freeSeats", routeId)
+	urlPath := fmt.Sprintf("/routes/%d/freeSeats", routeId)
 
-	fromStationId, _ := strconv.Atoi(stationFromID)
-	toStationId, _ := strconv.Atoi(stationToID)
+	fromStationId, err := strconv.Atoi(stationFromID)
+	if err != nil {
+		return nil, &models.FreeSeatsError{Message: "Invalid stationFromID"}
+	}
 
-	body := map[string]interface{}{
+	toStationId, err := strconv.Atoi(stationToID)
+	if err != nil {
+		return nil, &models.FreeSeatsError{Message: "Invalid stationToID"}
+	}
 
+	bodyMap := map[string]interface{}{
 		"sections": []map[string]int{
 			{
 				"sectionId":     routeId,
@@ -149,13 +141,12 @@ func (c *TrainClient) fetchFreeSeats(routeId int, seatclass, stationFromID, stat
 		"seatClass": seatclass,
 	}
 
-	jsonBody, err := json.Marshal(body)
-
+	body, err := json.Marshal(bodyMap)
 	if err != nil {
 		return nil, &models.FreeSeatsError{Message: err.Error()}
 	}
 
-	resp, err := http.Post(url, "application/json", bytes.NewReader(jsonBody))
+	resp, err := c.makeAPIRequest("POST", urlPath, body, map[string]string{"Content-Type": "application/json"})
 	if err != nil {
 		return nil, &models.FreeSeatsError{Message: "Failed to fetch free seats"}
 	}
@@ -173,57 +164,82 @@ func (c *TrainClient) fetchFreeSeats(routeId int, seatclass, stationFromID, stat
 		return nil, &freeSeatsError
 	}
 	return &freeSeatsResponse, nil
-
 }
 
 func (c *TrainClient) GetFreeSeats(routeID int, stationFromID, stationToID string) (models.FreeSeatsResponse, error) {
-	freeSeatsResponse0, error := c.fetchFreeSeats(routeID, "C0", stationFromID, stationToID)
-	freeSeatsResponse1, error := c.fetchFreeSeats(routeID, "C1", stationFromID, stationToID)
-	freeSeatsResponse2, error := c.fetchFreeSeats(routeID, "C2", stationFromID, stationToID)
+	var combinedFreeSeatsResponse models.FreeSeatsResponse
+	seatClasses := []string{"C0", "C1", "C2"}
 
-	if error != nil {
-		c.logger.Info("Failed to fetch data", zap.String("error", error.Message))
-		return nil, fmt.Errorf(error.Message)
-	}
-	if freeSeatsResponse0 == nil && freeSeatsResponse2 == nil && freeSeatsResponse1 == nil {
-		return nil, fmt.Errorf("Failed to fetch data")
-	}
-
-	if freeSeatsResponse0 == nil {
-		freeSeatsResponse0 = &models.FreeSeatsResponse{}
-	}
-	if freeSeatsResponse1 == nil {
-		freeSeatsResponse1 = &models.FreeSeatsResponse{}
-	}
-	if freeSeatsResponse2 == nil {
-		freeSeatsResponse2 = &models.FreeSeatsResponse{}
+	for _, seatClass := range seatClasses {
+		resp, err := c.fetchFreeSeats(routeID, seatClass, stationFromID, stationToID)
+		if err != nil {
+			c.logger.Error("Failed to fetch data", zap.String("error", err.Message))
+			return nil, errors.New(err.Message)
+		}
+		if resp != nil {
+			combinedFreeSeatsResponse = append(combinedFreeSeatsResponse, *resp...)
+		}
 	}
 
-	freeSeatsResponse := append(*freeSeatsResponse0, *freeSeatsResponse2...)
-	freeSeatsResponse = append(freeSeatsResponse, *freeSeatsResponse1...)
-
-	return freeSeatsResponse, nil
-
+	if len(combinedFreeSeatsResponse) == 0 {
+		return nil, errors.New("Failed to fetch data")
+	}
+	return combinedFreeSeatsResponse, nil
 }
 
-func (client *TrainClient) FetchStops(routeID string) (*TimetableResponse, error) {
-	// Construct the URL for the request
-	url := fmt.Sprintf("https://brn-ybus-pubapi.sa.cz/restapi/consts/timetables/%s", routeID)
+func (c *TrainClient) FetchStops(routeID string) (*models.TimetableResponse, error) {
+	urlPath := fmt.Sprintf("/consts/timetables/%s", routeID)
 
-	// Make the HTTP request
-	resp, err := http.Get(url)
+	resp, err := c.makeAPIRequest("GET", urlPath, nil, nil)
 	if err != nil {
-		log.Println("Failed to fetch stops:", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var timetable TimetableResponse
+	var timetable models.TimetableResponse
 	if err := json.NewDecoder(resp.Body).Decode(&timetable); err != nil {
-		log.Println("Failed to decode JSON:", err)
+		fmt.Printf("error in fetching stops %+v\n", err)
+	}
+
+	if len(timetable.Stations) == 0 {
+		return nil, fmt.Errorf("no timetable available in the response")
+	}
+	return &timetable, nil
+}
+
+func (c *TrainClient) GetRouteDetails(routeID int, fromStationID, toStationID string) (*models.RouteDetails, error) {
+	urlPath := fmt.Sprintf("/routes/%d/simple?fromStationId=%s&toStationId=%s", routeID, fromStationID, toStationID)
+
+	req, err := http.NewRequest("GET", urlPath, nil)
+	if err != nil {
 		return nil, err
 	}
 
-	// Return the stops information
-	return &timetable, nil
+	req.Header.Set("X-Currency", "CZK")
+
+	resp, err := c.makeAPIRequest("GET", urlPath, nil, map[string]string{"X-Currency": "CZK"})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var apiResponse models.RouteDetailsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+		return nil, err
+	}
+
+	if len(apiResponse.Sections) == 0 {
+		return nil, fmt.Errorf("no sections available in the response")
+	}
+
+	return &models.RouteDetails{
+		PriceFrom:         apiResponse.PriceFrom,
+		PriceTo:           apiResponse.PriceTo,
+		FreeSeatsCount:    apiResponse.FreeSeatsCount,
+		DepartureCityName: apiResponse.DepartureCityName,
+		ArrivalCityName:   apiResponse.ArrivalCityName,
+		TravelTime:        apiResponse.Sections[0].TravelTime,
+		DepartureTime:     apiResponse.DepartureTime,
+		ArrivalTime:       apiResponse.ArrivalTime,
+	}, nil
 }
