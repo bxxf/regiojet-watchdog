@@ -297,6 +297,9 @@ func (s *Server) uiWatchdogSetHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println("Failed to refresh routes after watchdog set:", err)
 		} else {
 			data.Routes = routes
+			if s.renderRouteRowWithWatchdogs(w, r, data, req.RouteID) {
+				return
+			}
 		}
 	}
 
@@ -324,6 +327,9 @@ func (s *Server) uiWatchdogRemoveHandler(w http.ResponseWriter, r *http.Request)
 			log.Println("Failed to refresh routes after watchdog removal:", err)
 		} else {
 			data.Routes = routes
+			if s.renderRouteRowWithWatchdogs(w, r, data, r.FormValue("routeID")) {
+				return
+			}
 		}
 	}
 
@@ -332,6 +338,32 @@ func (s *Server) uiWatchdogRemoveHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.renderRouteListWithWatchdogs(w, r, data)
+}
+
+func (s *Server) renderRouteRowWithWatchdogs(w http.ResponseWriter, r *http.Request, data ui.RouteListData, routeID string) bool {
+	for _, route := range data.Routes {
+		if route.ID != routeID {
+			continue
+		}
+
+		w.Header().Set("HX-Retarget", "#route-"+routeID)
+		if err := ui.RouteRow(route, data).Render(r.Context(), w); err != nil {
+			http.Error(w, "Failed to render route", http.StatusInternalServerError)
+			log.Println("Failed to render route row:", err)
+			return true
+		}
+
+		watchdogs, err := s.watchdogsForUI(r.Context())
+		if err != nil {
+			log.Println("Failed to refresh watchdogs:", err)
+			return true
+		}
+		if err := ui.WatchdogPanelOOB(watchdogs).Render(r.Context(), w); err != nil {
+			log.Println("Failed to render watchdog panel:", err)
+		}
+		return true
+	}
+	return false
 }
 
 func (s *Server) renderRouteListWithWatchdogs(w http.ResponseWriter, r *http.Request, data ui.RouteListData) {

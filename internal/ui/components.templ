@@ -24,8 +24,8 @@ templ Page(data PageData) {
 						@WebhookPanel(data)
 					</section>
 				</form>
-				@WatchdogPanel(data.Watchdogs)
 				<div id="routes-panel"></div>
+				@WatchdogPanel(data.Watchdogs)
 			</main>
 		</body>
 	</html>
@@ -348,7 +348,7 @@ templ Alert(title string, message string) {
 }
 
 templ RouteRow(route models.Route, data RouteListData) {
-	<article class={ routeRowClass(route) }>
+	<article id={ "route-" + route.ID } class={ routeRowClass(route) }>
 		<div class="route-main">
 			<div class="time-block">
 				<div class="time-block-row">
@@ -382,7 +382,7 @@ templ RouteRow(route models.Route, data RouteListData) {
 						class="danger-button compact"
 						hx-post="/ui/watchdog/remove"
 						hx-target="#routes-panel"
-						hx-swap="outerHTML"
+						hx-swap="outerHTML show:none"
 						hx-include="#route-form"
 					>
 						Remove
@@ -395,7 +395,7 @@ templ RouteRow(route models.Route, data RouteListData) {
 						class="primary-button compact"
 						hx-post="/ui/watchdog"
 						hx-target="#routes-panel"
-						hx-swap="outerHTML"
+						hx-swap="outerHTML show:none"
 						hx-include="#route-form"
 					>
 						Watch
