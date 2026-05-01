@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -37,7 +38,8 @@ type Station struct {
 }
 
 func (c *ConstantsClient) FetchConstants() (map[string]string, error) {
-	resp, err := http.Get("https://brn-ybus-pubapi.sa.cz/restapi/consts/locations")
+	client := http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://brn-ybus-pubapi.sa.cz/restapi/consts/locations")
 	if err != nil {
 		return nil, err
 	}
