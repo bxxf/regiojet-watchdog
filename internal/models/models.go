@@ -8,6 +8,7 @@ type TrainTicket struct {
 	PriceFrom      float64  `json:"priceFrom"`
 	PriceTo        float64  `json:"priceTo"`
 	TravelTime     string   `json:"travelTime"`
+	Bookable       bool     `json:"bookable"`
 	VehicleTypes   []string `json:"vehicleTypes"`
 	TransfersCount int      `json:"transfersCount"`
 }
@@ -68,7 +69,9 @@ type Route struct {
 	ArrivalTime   string  `json:"arrivalTime"`
 	PriceFrom     float64 `json:"priceFrom"`
 	PriceTo       float64 `json:"priceTo"`
+	Bookable      bool    `json:"bookable"`
 	FreeSeats     int     `json:"freeSeatsCount"`
+	Watchdog      bool    `json:"watchdog"`
 }
 
 type TimetableResponse struct {
@@ -85,4 +88,18 @@ type Stop struct {
 	Arrival   string   `json:"arrival"`
 	Symbols   []string `json:"symbols"`
 	Platform  string   `json:"platform"`
+}
+
+type Webhook struct {
+	WebhookURL     string `json:"webhookUrl"`
+	WebhookType    string `json:"webhookType"`
+	StationFromID  string `json:"stationFromId"`
+	StationToID    string `json:"stationToId"`
+	RouteID        string `json:"routeId"`
+	SubscriptionID string `json:"subscriptionId,omitempty"`
+	FromName       string `json:"fromName,omitempty"`
+	ToName         string `json:"toName,omitempty"`
+	DepartureTime  string `json:"departureTime,omitempty"`
+	ArrivalTime    string `json:"arrivalTime,omitempty"`
+	CheckSegments  bool   `json:"checkSegments"`
 }

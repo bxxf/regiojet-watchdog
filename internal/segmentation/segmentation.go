@@ -11,8 +11,6 @@ import (
 	"github.com/bxxf/regiojet-watchdog/internal/models"
 )
 
-const timeFormat = "15:04:05.000"
-
 type SegmentationService struct {
 	trainClient *client.TrainClient
 	constants   map[string]string
@@ -21,7 +19,7 @@ type SegmentationService struct {
 func NewSegmentationService(trainClient *client.TrainClient, constantsClient *constants.ConstantsClient) (*SegmentationService, error) {
 	constMap, err := constantsClient.FetchConstants()
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch constants: %v", err)
+		return nil, fmt.Errorf("failed to fetch constants for segmentation: %w", err)
 	}
 
 	return &SegmentationService{

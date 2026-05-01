@@ -8,6 +8,7 @@ import (
 	"github.com/bxxf/regiojet-watchdog/internal/database"
 	"github.com/bxxf/regiojet-watchdog/internal/discord"
 	"github.com/bxxf/regiojet-watchdog/internal/logger"
+	"github.com/bxxf/regiojet-watchdog/internal/notify"
 	"github.com/bxxf/regiojet-watchdog/internal/segmentation"
 	"github.com/bxxf/regiojet-watchdog/internal/server"
 	"go.uber.org/fx"
@@ -23,6 +24,7 @@ func main() {
 			checker.NewChecker,
 			segmentation.NewSegmentationService,
 			server.NewServer,
+			notify.NewNotifyService,
 			discord.NewDiscordService,
 			database.NewDatabaseClient,
 		),

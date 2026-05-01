@@ -2,34 +2,36 @@ package checker
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
 	"time"
 
 	clientpkg "github.com/bxxf/regiojet-watchdog/internal/client"
+	"github.com/bxxf/regiojet-watchdog/internal/config"
 	databasepkg "github.com/bxxf/regiojet-watchdog/internal/database"
-	discordpkg "github.com/bxxf/regiojet-watchdog/internal/discord"
 	"github.com/bxxf/regiojet-watchdog/internal/models"
+	"github.com/bxxf/regiojet-watchdog/internal/notify"
 	segmentationpkg "github.com/bxxf/regiojet-watchdog/internal/segmentation"
 	"go.uber.org/fx"
 )
 
 type Checker struct {
-	discordService      *discordpkg.DiscordService
+	config              config.Config
+	notifyService       *notify.NotifyService
 	trainClient         *clientpkg.TrainClient
 	database            *databasepkg.DatabaseClient
 	segmentationService *segmentationpkg.SegmentationService
 }
 
-func NewChecker(database *databasepkg.DatabaseClient, segmentationService *segmentationpkg.SegmentationService, client *clientpkg.TrainClient, discordService *discordpkg.DiscordService) *Checker {
+func NewChecker(config config.Config, database *databasepkg.DatabaseClient, segmentationService *segmentationpkg.SegmentationService, client *clientpkg.TrainClient, notifyService *notify.NotifyService) *Checker {
 	return &Checker{
+		config:              config,
 		trainClient:         client,
 		database:            database,
 		segmentationService: segmentationService,
-		discordService:      discordService,
+		notifyService:       notifyService,
 	}
 }
 
@@ -40,38 +42,32 @@ func (c *Checker) handleKey(key string) {
 		return
 	}
 
-	webhookURL, stationFromID, stationToID, routeIDStr, err := c.parseValue(value)
+	var w models.Webhook
+	err = json.Unmarshal([]byte(value), &w)
 	if err != nil {
 		log.Println("Failed to parse value:", err)
 		return
 	}
 
-	routeDetails, freeSeatsResponse, err := c.fetchRouteDetails(routeIDStr, stationFromID, stationToID)
+	routeDetails, freeSeatsResponse, err := c.fetchRouteDetails(w.RouteID, w.StationFromID, w.StationToID)
 	if err != nil {
 		log.Println("Failed to fetch route details or free seats:", err)
 	}
 
 	if routeDetails != nil && routeDetails.FreeSeatsCount > 0 {
-		if freeSeatsResponse != nil {
-			c.discordService.NotifyDiscord(*freeSeatsResponse, *routeDetails, routeDetails.DepartureTime, webhookURL)
-			c.notifyAlternativeSegments(routeIDStr, stationFromID, stationToID, routeDetails.DepartureTime, webhookURL)
+		if freeSeatsResponse != nil && len(*freeSeatsResponse) > 0 {
+			c.notifyService.Dispatch(*freeSeatsResponse, *routeDetails, routeDetails.DepartureTime, w.WebhookType, w.WebhookURL)
+			if w.CheckSegments {
+				c.notifyAlternativeSegments(w.RouteID, w.StationFromID, w.StationToID, routeDetails.DepartureTime, w.WebhookType, w.WebhookURL)
+			}
 		} else {
 			fmt.Printf("Free seats count is %d, but free seats response is nil\n", routeDetails.FreeSeatsCount)
 		}
-	} else if routeDetails != nil {
-		c.notifyAlternativeSegments(routeIDStr, stationFromID, stationToID, routeDetails.DepartureTime, webhookURL)
+	} else if routeDetails != nil && w.CheckSegments {
+		c.notifyAlternativeSegments(w.RouteID, w.StationFromID, w.StationToID, routeDetails.DepartureTime, w.WebhookType, w.WebhookURL)
 	} else {
 		fmt.Printf("Free seats count is 0, but route details are nil - %v\n", routeDetails)
 	}
-
-}
-
-func (c *Checker) parseValue(value string) (webhookURL, stationFromID, stationToID, routeIDStr string, err error) {
-	parts := strings.Split(value, ";;")
-	if len(parts) != 4 {
-		return "", "", "", "", errors.New("Invalid value format")
-	}
-	return parts[0], parts[1], parts[2], parts[3], nil
 }
 
 func (c *Checker) fetchRouteDetails(routeIDStr, stationFromID, stationToID string) (*models.RouteDetails, *models.FreeSeatsResponse, error) {
@@ -80,12 +76,18 @@ func (c *Checker) fetchRouteDetails(routeIDStr, stationFromID, stationToID strin
 		return nil, nil, err
 	}
 
-	freeSeatsResponse, err := c.trainClient.GetFreeSeats(routeID, stationFromID, stationToID)
 	routeDetails, err := c.trainClient.GetRouteDetails(routeID, stationFromID, stationToID)
-	return routeDetails, &freeSeatsResponse, err
+	if err != nil {
+		return nil, nil, err
+	}
+	freeSeatsResponse, err := c.trainClient.GetFreeSeats(routeID, stationFromID, stationToID)
+	if err != nil {
+		return routeDetails, nil, err
+	}
+	return routeDetails, &freeSeatsResponse, nil
 }
 
-func (c *Checker) notifyAlternativeSegments(routeIDStr, stationFromID, stationToID, departureTimeStr, webhookURL string) {
+func (c *Checker) notifyAlternativeSegments(routeIDStr, stationFromID, stationToID, departureTimeStr, webhookType string, webhookURL string) {
 	departureTime, _ := time.Parse(time.RFC3339, departureTimeStr)
 	departureDate := departureTime.Format("02.01.2006")
 	availableSegments, err := c.segmentationService.FindAvailableSegments(routeIDStr, stationFromID, stationToID, departureDate)
@@ -94,18 +96,22 @@ func (c *Checker) notifyAlternativeSegments(routeIDStr, stationFromID, stationTo
 		return
 	}
 	if len(availableSegments) > 0 {
-		c.discordService.NotifyDiscordAlternatives(availableSegments, webhookURL)
+		c.notifyService.DispatchAlternative(availableSegments, webhookType, webhookURL)
 	}
 }
 
 func (c *Checker) periodicallyCheck() {
-	ticker := time.NewTicker(1 * time.Minute)
+	if c.config.CheckIntervalMinutes <= 0 {
+		return
+	}
+
+	ticker := time.NewTicker(time.Duration(c.config.CheckIntervalMinutes) * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			keys, err := c.database.RedisClient.Keys(context.Background(), "watchdog:*").Result()
+			keys, err := c.database.RedisClient.Keys(context.Background(), "watchdog:*:*").Result()
 			if err != nil {
 				log.Println("Failed to fetch keys:", err)
 				continue
@@ -118,6 +124,10 @@ func (c *Checker) periodicallyCheck() {
 }
 
 func RegisterCheckerHooks(lc fx.Lifecycle, checker *Checker) {
+	if checker.config.CheckIntervalMinutes <= 0 {
+		return
+	}
+
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			go checker.periodicallyCheck()

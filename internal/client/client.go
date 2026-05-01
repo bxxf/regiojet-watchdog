@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,21 +10,25 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bxxf/regiojet-watchdog/internal/database"
 	"github.com/bxxf/regiojet-watchdog/internal/models"
+	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 )
 
 const baseURL = "https://brn-ybus-pubapi.sa.cz/restapi"
 
 type TrainClient struct {
-	logger *zap.Logger
-	client *http.Client
+	logger   *zap.Logger
+	client   *http.Client
+	database *database.DatabaseClient
 }
 
-func NewTrainClient(logger *zap.Logger) *TrainClient {
+func NewTrainClient(logger *zap.Logger, database *database.DatabaseClient) *TrainClient {
 	return &TrainClient{
-		logger: logger,
-		client: &http.Client{},
+		logger:   logger,
+		client:   &http.Client{Timeout: 15 * time.Second},
+		database: database,
 	}
 }
 
@@ -69,20 +74,18 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 
 	var routes []models.Route
 	for _, ticket := range responseJson.Routes {
-		vehicleType := ticket.VehicleTypes[0]
-		containsBus := false
-		if vehicleType == "BUS" {
-			containsBus = true
-			break
+		if len(ticket.VehicleTypes) == 0 {
+			c.logger.Warn("Skipping route without vehicle type", zap.String("routeID", ticket.ID))
+			continue
 		}
-
-		if containsBus {
+		if hasVehicleType(ticket.VehicleTypes, "BUS") {
 			continue
 		}
 
 		departureTime, err := time.Parse(time.RFC3339, ticket.DepartureTime)
 		if err != nil {
-			c.logger.Fatal("Failed to parse departure time", zap.Error(err))
+			c.logger.Warn("Skipping route with invalid departure time", zap.String("routeID", ticket.ID), zap.Error(err))
+			continue
 		}
 
 		if departureTime.Format("02.01.2006") != departureDate {
@@ -97,7 +100,8 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 
 		arrivalTime, err := time.Parse(time.RFC3339, ticket.ArrivalTime)
 		if err != nil {
-			c.logger.Fatal("Failed to parse arrival time", zap.Error(err))
+			c.logger.Warn("Skipping route with invalid arrival time", zap.String("routeID", ticket.ID), zap.Error(err))
+			continue
 		}
 
 		arrivalString := arrivalTime.Format("15:04")
@@ -108,12 +112,36 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 			ArrivalTime:   arrivalString,
 			PriceFrom:     ticket.PriceFrom,
 			PriceTo:       ticket.PriceTo,
+			Bookable:      ticket.Bookable,
 			FreeSeats:     ticket.FreeSeatsCount,
+			Watchdog:      c.hasWatchdog(ticket.ID),
 		})
 
 	}
 
 	return routes, nil
+}
+
+func hasVehicleType(vehicleTypes []string, vehicleType string) bool {
+	for _, current := range vehicleTypes {
+		if current == vehicleType {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *TrainClient) hasWatchdog(routeID string) bool {
+	ctx := context.Background()
+	exactKey := "watchdog:" + routeID
+	iter := c.database.RedisClient.Scan(ctx, 0, exactKey+":*", 1).Iterator()
+	if iter.Next(ctx) {
+		return true
+	}
+	if err := iter.Err(); err != nil && !errors.Is(err, redis.Nil) {
+		c.logger.Error("watchdog lookup failed", zap.String("routeID", routeID), zap.Error(err))
+	}
+	return false
 }
 
 func (c *TrainClient) fetchFreeSeats(routeId int, seatclass, stationFromID, stationToID string) (*models.FreeSeatsResponse, *models.FreeSeatsError) {

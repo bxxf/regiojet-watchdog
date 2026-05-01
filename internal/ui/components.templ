@@ -1,0 +1,403 @@
+package ui
+
+import "github.com/bxxf/regiojet-watchdog/internal/models"
+
+templ Page(data PageData) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta http-equiv="x-ua-compatible" content="ie=edge"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>RegioJet Watchdog</title>
+			<link rel="stylesheet" href="/assets/style.css"/>
+			<script src="/assets/htmx.min.js"></script>
+		</head>
+		<body>
+			<main class="app-shell">
+				<header class="page-header">
+					<h1>RegioJet Watchdog</h1>
+				</header>
+				<form id="route-form" hx-get="/ui/routes" hx-target="#routes-panel" hx-swap="outerHTML">
+					<section class="control-grid">
+						@SearchPanel(data)
+						@WebhookPanel(data)
+					</section>
+				</form>
+				<div id="routes-panel"></div>
+				@WatchdogPanel(data.Watchdogs)
+			</main>
+		</body>
+	</html>
+}
+
+templ SearchPanel(data PageData) {
+	<section id="search-panel" class="panel route-panel">
+		<div class="panel-heading">
+			<div>
+				<h2>Search</h2>
+				<p>Pick a direct train connection and departure date.</p>
+			</div>
+		</div>
+		<div class="search-grid">
+			@StationPicker("from", "From", data.FromID, data.FromName)
+			<button
+				type="button"
+				class="swap-button"
+				title="Swap stations"
+				aria-label="Swap stations"
+				hx-get="/ui/search-panel/swap"
+				hx-target="#search-panel"
+				hx-swap="outerHTML"
+				hx-include="#route-form"
+			>
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M7 4v16"></path>
+					<path d="M3 8l4-4 4 4"></path>
+					<path d="M17 20V4"></path>
+					<path d="M21 16l-4 4-4-4"></path>
+				</svg>
+			</button>
+			@StationPicker("to", "To", data.ToID, data.ToName)
+			<div class="field date-field">
+				<label for="departure">Departure</label>
+				<input id="departure" name="departure" type="date" value={ data.Departure }/>
+			</div>
+			<div class="field currency-field">
+				<label for="currency">Currency</label>
+				<select id="currency" name="currency">
+					<option value="CZK" selected?={ data.Currency == "CZK" }>CZK</option>
+					<option value="EUR" selected?={ data.Currency == "EUR" }>EUR</option>
+					<option value="PLN" selected?={ data.Currency == "PLN" }>PLN</option>
+					<option value="HUF" selected?={ data.Currency == "HUF" }>HUF</option>
+				</select>
+			</div>
+		</div>
+		<div class="panel-actions">
+			<p class="muted" data-route-hint>Search stations by city, stop name, or ID.</p>
+			<button
+				class="primary-button"
+				type="submit"
+			>
+				Search routes
+			</button>
+		</div>
+	</section>
+}
+
+templ StationPicker(target string, label string, selectedID string, selectedName string) {
+	<div id={ target + "StationField" } class="field station-field">
+		<label for={ target + "Search" }>{ label }</label>
+		<input
+			id={ target + "Search" }
+			name={ target + "Search" }
+			type="search"
+			autocomplete="off"
+			placeholder="Search station"
+			value={ selectedName }
+			hx-get={ "/ui/stations?target=" + target }
+			hx-trigger="focus, input changed delay:120ms, search"
+			hx-target={ "#" + target + "StationMenu" }
+			hx-swap="innerHTML"
+			hx-include="#route-form"
+		/>
+		<input id={ target + "StationID" } name={ target + "StationID" } type="hidden" value={ selectedID }/>
+		<div id={ target + "StationMenu" } class="station-menu"></div>
+	</div>
+}
+
+templ WebhookPanel(data PageData) {
+	<aside class="panel settings-panel">
+		<div class="panel-heading">
+			<div>
+				<h2>Webhook</h2>
+				<p>Saved locally and used only when you create a watchdog.</p>
+			</div>
+		</div>
+		<div class="field">
+			<label for="webhookUrl">URL</label>
+			<input id="webhookUrl" name="webhookURL" value={ data.WebhookURL } type="url" placeholder="https://discord.com/api/webhooks/..."/>
+		</div>
+		<div class="settings-row">
+			<div class="field">
+				<label for="webhookType">Type</label>
+				<select
+					id="webhookType"
+					name="webhookType"
+					hx-get="/ui/webhook-help"
+					hx-target="#webhook-help"
+					hx-swap="outerHTML"
+					hx-include="#webhookType, #checkSegments"
+				>
+					<option value="discord" selected?={ data.WebhookType == "discord" }>Discord</option>
+					<option value="simple" selected?={ data.WebhookType == "simple" }>HTTP POST</option>
+				</select>
+			</div>
+			<div class="toggle-with-help">
+				<label class="toggle">
+					<input
+						id="checkSegments"
+						type="checkbox"
+						name="checkSegments"
+						value="1"
+						checked?={ data.CheckSegments }
+						hx-get="/ui/webhook-help"
+						hx-target="#webhook-help"
+						hx-swap="outerHTML"
+						hx-include="#webhookType, #checkSegments"
+					/>
+					<span></span>
+					<strong>Check segments</strong>
+				</label>
+				<button class="info-tooltip" type="button" aria-label="Check segments help">
+					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info-icon lucide-info" aria-hidden="true">
+						<circle cx="12" cy="12" r="10"/>
+						<path d="M12 16v-4"/>
+						<path d="M12 8h.01"/>
+					</svg>
+					<span role="tooltip">Also checks smaller legs along the same train when the full route is sold out, then notifies you about alternative segment combinations with free seats. This can make more RegioJet API calls.</span>
+				</button>
+			</div>
+		</div>
+		@WebhookHelp(data.WebhookType, data.CheckSegments)
+	</aside>
+}
+
+templ WebhookHelp(webhookType string, checkSegments bool) {
+	<div id="webhook-help" class="webhook-help">
+		if webhookType == "simple" {
+			<h3>HTTP POST</h3>
+			if checkSegments {
+				<p>Sends JSON to your endpoint when seats are found. Return 200 OK. With Check segments enabled, your receiver should accept direct-seat and alternative-segment payloads.</p>
+				<pre><code>{ HTTPPostWebhookSchema(true) }</code></pre>
+			} else {
+				<p>Sends JSON to your endpoint when seats are found. Return 200 OK.</p>
+				<pre><code>{ HTTPPostWebhookSchema(false) }</code></pre>
+			}
+		}
+	</div>
+}
+
+templ StationOptions(data StationOptionsData) {
+	for _, station := range data.Stations {
+		<button
+			type="button"
+			hx-get={ "/ui/station-picker?target=" + data.Target + "&stationID=" + station.ID }
+			hx-target={ "#" + data.Target + "StationField" }
+			hx-swap="outerHTML"
+		>
+			<span>{ station.Name }</span>
+		</button>
+	}
+	if len(data.Stations) == 0 {
+		<p class="empty-menu">No station found</p>
+	}
+	if data.ClearSelection {
+		<input id={ data.Target + "StationID" } name={ data.Target + "StationID" } type="hidden" value="" hx-swap-oob="outerHTML"/>
+	}
+}
+
+templ RouteList(data RouteListData) {
+	<section id="routes-panel" class="routes-panel">
+		@RouteListContent(data)
+	</section>
+}
+
+templ RouteListOOB(data RouteListData) {
+	<section id="routes-panel" class="routes-panel" hx-swap-oob="outerHTML">
+		@RouteListContent(data)
+	</section>
+}
+
+templ RouteListContent(data RouteListData) {
+		<div class="routes-toolbar">
+			<div>
+				<h2>Departures</h2>
+				if data.FromName != "" && data.ToName != "" {
+					<p>{ data.FromName } → { data.ToName }</p>
+				} else {
+					<p>Search for a route to see departures.</p>
+				}
+			</div>
+			if len(data.Routes) > 0 {
+				<button
+					type="button"
+					class="ghost-button"
+					hx-get="/ui/routes"
+					hx-target="#routes-panel"
+					hx-swap="outerHTML"
+					hx-include="#route-form"
+				>
+					Refresh
+				</button>
+			}
+		</div>
+		if data.Error != "" {
+			<div class="routes-body">
+				@Alert(ErrorTitle(data.Error), data.Error)
+			</div>
+		} else if len(data.Routes) == 0 {
+			<div class="routes-body">
+				<div class="empty-state">
+					<h3>No departures found</h3>
+					<p>There are no direct train departures for this station pair and date.</p>
+				</div>
+			</div>
+		} else {
+			<div class="route-list">
+				for _, route := range data.Routes {
+					@RouteRow(route, data)
+				}
+			</div>
+		}
+}
+
+templ WatchdogPanel(watchdogs []WatchdogView) {
+	<section id="watchdogs-panel" class="watchdogs-panel">
+		<div class="routes-toolbar">
+			<div>
+				<h2>Watchdogs</h2>
+				if len(watchdogs) == 0 {
+					<p>No active watchdogs yet.</p>
+				} else {
+					<p>Routes currently being watched.</p>
+				}
+			</div>
+		</div>
+		if len(watchdogs) == 0 {
+			<div class="routes-body">
+				<div class="watchdogs-empty">
+					<p>Search a route, add a webhook, then click Watch.</p>
+				</div>
+			</div>
+		} else {
+			<div class="watchdog-list">
+				for _, watchdog := range watchdogs {
+					@WatchdogRow(watchdog)
+				}
+			</div>
+		}
+	</section>
+}
+
+templ WatchdogPanelOOB(watchdogs []WatchdogView) {
+	<section id="watchdogs-panel" class="watchdogs-panel" hx-swap-oob="outerHTML">
+		<div class="routes-toolbar">
+			<div>
+				<h2>Watchdogs</h2>
+				if len(watchdogs) == 0 {
+					<p>No active watchdogs yet.</p>
+				} else {
+					<p>Routes currently being watched.</p>
+				}
+			</div>
+		</div>
+		if len(watchdogs) == 0 {
+			<div class="routes-body">
+				<div class="watchdogs-empty">
+					<p>Search a route, add a webhook, then click Watch.</p>
+				</div>
+			</div>
+		} else {
+			<div class="watchdog-list">
+				for _, watchdog := range watchdogs {
+					@WatchdogRow(watchdog)
+				}
+			</div>
+		}
+	</section>
+}
+
+templ WatchdogRow(watchdog WatchdogView) {
+	<article class="watchdog-row">
+		<div class="watchdog-main">
+			<div class="watchdog-route">
+				<strong>{ watchdog.FromName } → { watchdog.ToName }</strong>
+				if watchdog.DepartureTime != "" && watchdog.ArrivalTime != "" {
+					<span>{ watchdog.DepartureTime } → { watchdog.ArrivalTime }</span>
+				}
+			</div>
+			<div class="watchdog-meta">
+				<span>{ WebhookTypeLabel(watchdog.WebhookType) }</span>
+				if watchdog.CheckSegments {
+					<span>Segments</span>
+				}
+			</div>
+			<button
+				type="button"
+				class="danger-button compact"
+				hx-post="/ui/watchdog/remove"
+				hx-target="#watchdogs-panel"
+				hx-swap="outerHTML"
+				hx-include="#route-form"
+				hx-vals={ "{\"routeID\":\"" + watchdog.RouteID + "\",\"subscriptionID\":\"" + watchdog.SubscriptionID + "\"}" }
+			>
+				Remove
+			</button>
+		</div>
+	</article>
+}
+
+templ Alert(title string, message string) {
+	<div class="alert alert-error" role="alert">
+		<div class="alert-icon">
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<circle cx="12" cy="12" r="10"></circle>
+				<path d="M12 8v5"></path>
+				<path d="M12 16h.01"></path>
+			</svg>
+		</div>
+		<div class="alert-copy">
+			<h3>{ title }</h3>
+			<p>{ message }</p>
+		</div>
+	</div>
+}
+
+templ RouteRow(route models.Route, data RouteListData) {
+	<article id={ "route-" + route.ID } class={ routeRowClass(route) }>
+		<div class="route-main">
+			<div class="time-block">
+				<div class="time-block-row">
+					<strong>{ route.DepartureTime }</strong>
+					<span class="arrow-mini">→</span>
+					<span class="arrival">{ route.ArrivalTime }</span>
+				</div>
+			</div>
+			<div class="route-meta">
+				<div class="route-title">
+					<span>{ data.FromName }</span>
+					<span class="arrow">→</span>
+					<span>{ data.ToName }</span>
+				</div>
+				<div class="route-subline">
+					<span class="route-price">{ PriceRange(route, data.Currency) }</span>
+					if route.Watchdog {
+						<span class="watchdog-tag">Watching</span>
+					}
+				</div>
+			</div>
+			<div class="seat-summary">
+				<span class={ seatBadgeClass(route) }>{ SeatText(route) }</span>
+			</div>
+			<div class="route-actions">
+				if route.Watchdog {
+					<span class="route-action-note">Managed below</span>
+				} else {
+					<button
+						type="button"
+						name="routeID"
+						value={ route.ID }
+						class="primary-button compact"
+						hx-post="/ui/watchdog"
+						hx-target="#routes-panel"
+						hx-swap="outerHTML show:none"
+						hx-include="#route-form"
+					>
+						Watch
+					</button>
+				}
+			</div>
+		</div>
+	</article>
+}
