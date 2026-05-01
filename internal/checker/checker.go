@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	clientpkg "github.com/bxxf/regiojet-watchdog/internal/client"
@@ -45,8 +46,13 @@ func (c *Checker) handleKey(key string) {
 	var w models.Webhook
 	err = json.Unmarshal([]byte(value), &w)
 	if err != nil {
-		log.Println("Failed to parse value:", err)
-		return
+		legacyWebhook, legacyErr := parseLegacyWebhook(value)
+		if legacyErr != nil {
+			log.Println("Failed to parse value:", err)
+			return
+		}
+		w = legacyWebhook
+		log.Println("Legacy watchdog value detected for key", key)
 	}
 
 	routeDetails, freeSeatsResponse, err := c.fetchRouteDetails(w.RouteID, w.StationFromID, w.StationToID)
@@ -68,6 +74,22 @@ func (c *Checker) handleKey(key string) {
 	} else {
 		fmt.Printf("Free seats count is 0, but route details are nil - %v\n", routeDetails)
 	}
+}
+
+func parseLegacyWebhook(value string) (models.Webhook, error) {
+	parts := strings.Split(value, ";;")
+	if len(parts) != 4 {
+		return models.Webhook{}, fmt.Errorf("invalid legacy watchdog value format")
+	}
+
+	return models.Webhook{
+		WebhookURL:    parts[0],
+		StationFromID: parts[1],
+		StationToID:   parts[2],
+		RouteID:       parts[3],
+		WebhookType:   "discord",
+		CheckSegments: true,
+	}, nil
 }
 
 func (c *Checker) fetchRouteDetails(routeIDStr, stationFromID, stationToID string) (*models.RouteDetails, *models.FreeSeatsResponse, error) {

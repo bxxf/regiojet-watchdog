@@ -74,14 +74,18 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 
 	var routes []models.Route
 	for _, ticket := range responseJson.Routes {
-		vehicleType := ticket.VehicleTypes[0]
-		if vehicleType == "BUS" {
+		if len(ticket.VehicleTypes) == 0 {
+			c.logger.Warn("Skipping route without vehicle type", zap.String("routeID", ticket.ID))
+			continue
+		}
+		if hasVehicleType(ticket.VehicleTypes, "BUS") {
 			continue
 		}
 
 		departureTime, err := time.Parse(time.RFC3339, ticket.DepartureTime)
 		if err != nil {
-			c.logger.Fatal("Failed to parse departure time", zap.Error(err))
+			c.logger.Warn("Skipping route with invalid departure time", zap.String("routeID", ticket.ID), zap.Error(err))
+			continue
 		}
 
 		if departureTime.Format("02.01.2006") != departureDate {
@@ -96,17 +100,11 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 
 		arrivalTime, err := time.Parse(time.RFC3339, ticket.ArrivalTime)
 		if err != nil {
-			c.logger.Fatal("Failed to parse arrival time", zap.Error(err))
+			c.logger.Warn("Skipping route with invalid arrival time", zap.String("routeID", ticket.ID), zap.Error(err))
+			continue
 		}
 
 		arrivalString := arrivalTime.Format("15:04")
-
-		key := "watchdog:" + ticket.ID
-		_, err = c.database.RedisClient.Get(context.Background(), key).Result()
-		watchdog := err == nil
-		if err != nil && !errors.Is(err, redis.Nil) {
-			c.logger.Error("watchdog lookup failed", zap.String("key", key), zap.Error(err))
-		}
 
 		routes = append(routes, models.Route{
 			ID:            ticket.ID,
@@ -116,12 +114,43 @@ func (c *TrainClient) FetchRoutes(stationFromID, stationToID, departureDate, cur
 			PriceTo:       ticket.PriceTo,
 			Bookable:      ticket.Bookable,
 			FreeSeats:     ticket.FreeSeatsCount,
-			Watchdog:      watchdog,
+			Watchdog:      c.hasWatchdog(ticket.ID),
 		})
 
 	}
 
 	return routes, nil
+}
+
+func hasVehicleType(vehicleTypes []string, vehicleType string) bool {
+	for _, current := range vehicleTypes {
+		if current == vehicleType {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *TrainClient) hasWatchdog(routeID string) bool {
+	ctx := context.Background()
+	exactKey := "watchdog:" + routeID
+	exists, err := c.database.RedisClient.Exists(ctx, exactKey).Result()
+	if err != nil {
+		c.logger.Error("watchdog lookup failed", zap.String("key", exactKey), zap.Error(err))
+		return false
+	}
+	if exists > 0 {
+		return true
+	}
+
+	iter := c.database.RedisClient.Scan(ctx, 0, exactKey+":*", 1).Iterator()
+	if iter.Next(ctx) {
+		return true
+	}
+	if err := iter.Err(); err != nil && !errors.Is(err, redis.Nil) {
+		c.logger.Error("watchdog lookup failed", zap.String("routeID", routeID), zap.Error(err))
+	}
+	return false
 }
 
 func (c *TrainClient) fetchFreeSeats(routeId int, seatclass, stationFromID, stationToID string) (*models.FreeSeatsResponse, *models.FreeSeatsError) {

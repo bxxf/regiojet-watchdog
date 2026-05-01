@@ -19,7 +19,8 @@ type SegmentationService struct {
 func NewSegmentationService(trainClient *client.TrainClient, constantsClient *constants.ConstantsClient) (*SegmentationService, error) {
 	constMap, err := constantsClient.FetchConstants()
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch constants: %v", err)
+		log.Printf("Failed to fetch constants for segmentation: %v", err)
+		constMap = map[string]string{}
 	}
 
 	return &SegmentationService{
