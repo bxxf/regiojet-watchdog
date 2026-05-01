@@ -26,6 +26,10 @@ First, you will need to set up your environment variables. Create a file named .
 ```REDIS_URL=your_redis_url```
 Replace `your_redis_url` with your actual Redis connection URL. You can also add `PORT`, if you want to change it from default `7900`.
 
+To change the check interval in minutes, add this line:
+```CHECK_INTERVAL_MINUTES=60```
+default value is `1`, `0` value will disable the check routine.
+
 ## Running the Server
 Navigate to the project directory and run the following command to start the server:
 ```go run .```
@@ -82,23 +86,35 @@ with the following JSON payload:
     "stationFromID": "372825002",
     "stationToID": "1841058000",
     "routeID": "6618452367",
-    "webhookURL": "https://discord.com/api/webhooks/your_webhook_id/your_webhook_token"
+    "webhookURL": "https://discord.com/api/webhooks/your_webhook_id/your_webhook_token",
+    "webhookType": "discord",
+    "checkSegments": true
 }
 ```
 
 
 Replace `your_webhook_id` and `your_webhook_token` with your actual Discord Webhook ID and token.
+The `webhookType` accepts `discord` or `simple` values. 
+
+The `checkSegments` option determines whether segmented routes should be checked.
+
+### Step 3: Remove a Watchdog
+
+Removes a watchdog by making a POST request to
+
+```http://localhost:7900/watchdog/remove```
+
+with the following JSON payload:
+```json
+{
+    "routeID": "6618452367"
+}
+```
 
 #### Discord Notification
 Once a watchdog is set up, the service will periodically check the chosen route for free seats. When free seats are available, it will send a notification to the Discord channel associated with the provided Webhook URL.
 
 ## To Be Done
-
-### Cancelling Running Watchdogs
-In the future, an endpoint will be available to cancel currently running watchdogs. You will be able to send a request to this endpoint with the ID of the watchdog you want to cancel.
-
-### UI for Creating New Watchdogs
-A user-friendly interface is planned to simplify the process of creating new watchdogs. This UI will be accessible via a web browser and will provide a simple form to enter the necessary information to set up a new watchdog.
 
 ### Automatic reservations
 A future feature is planned to enable automatic reservations of available seats. When the watchdog detects that seats on a specified route have become available, it will automatically reserve a seat. This feature will ensure that you never miss out on an available seat by automating the reservation process.ss

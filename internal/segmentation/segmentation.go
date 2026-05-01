@@ -11,8 +11,6 @@ import (
 	"github.com/bxxf/regiojet-watchdog/internal/models"
 )
 
-const timeFormat = "15:04:05.000"
-
 type SegmentationService struct {
 	trainClient *client.TrainClient
 	constants   map[string]string

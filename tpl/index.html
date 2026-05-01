@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RegioJet Watchdog</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <div x-data="searchComponent()" class="search-container">
+            <div class="row">
+                <div class="field">
+                    <label>Station from</label>
+                    <select x-ref="fromSelect" x-model="$store.app.fromId">
+                        <option value="">---</option>
+                        <template x-for="station in stations" :key="station.id">
+                            <option :value="station.id" x-text="station.name"></option>
+                        </template>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Station to</label>
+                    <select x-ref="toSelect" x-model="$store.app.toId">
+                        <option value="">---</option>
+                        <template x-for="station in stations" :key="station.id">
+                            <option :value="station.id" x-text="station.name"></option>
+                        </template>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Departure</label>
+                    <input type="date" x-model="$store.app.departure">
+                </div>
+                <div class="field">
+                    <label>Segments</label>
+                    <select x-model="$store.app.checkSegments">
+                        <option value="0">Disabled</option>
+                        <option value="1">Enabled</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <button class="search-btn" type="button" @click="search()" :disabled="processing">Search</button>
+                </div>
+            </div>
+            <div class="row">
+                <div class="field">
+                    <label>Webhook URL</label>
+                    <input x-model="$store.app.webhookUrl" type="text" size="64">
+                </div>
+                <div class="field">
+                    <label>Webhook type</label>
+                    <select x-model="$store.app.webhookType">
+                        <option value="discord">Discord</option>
+                        <option value="simple">Simple</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div x-data="errorComponent()">
+            <div x-show="$store.app.error != ''" x-text="$store.app.error" class="error"></div>
+        </div>
+
+        <div x-data="routesComponent()" @routes-set.window="set($event.detail)" class="routes">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Departure</th>
+                        <th>Arrival</th>
+                        <th>Seats</th>
+                        <th>Price</th>
+                        <th>&nbsp;</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="route in routes" :key="route.id">
+                        <tr :class="{'has-seats': route.bookable, 'no-seats': !route.bookable}">
+                            <td x-text="route.departureTime" class="time-dep"></td>
+                            <td x-text="route.arrivalTime" class="time-arr"></td>
+                            <td>
+                                <span x-show="route.freeSeatsCount > 0" class="badge badge-avail"><span class="dot dot-green"></span><span x-text="route.freeSeatsCount"></span> free seats</span>
+                                <span x-show="route.freeSeatsCount < 1" class="badge badge-empty"><span class="dot dot-gray"></span>No free seats</span>
+                            </td>
+                            <td x-text="priceRange(route)" class="price-range"></td>
+                            <td>
+                                <button x-show="!route.watchdog" @click="watchdogSet(route)" class="btn watchdog" :disabled="processing">Watch</button>
+                                <button x-show="route.watchdog" @click="watchdogRemove(route)" class="btn watchdog-remove" :disabled="processing">Remove</button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        async function apiCall(url, data, callback) {
+            const request = {
+                method: data ? 'POST' : 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    ...(data ? { 'Content-Type': 'application/json' } : {})
+                },
+                ...(data ? { body: JSON.stringify(data) } : {})
+            }
+
+            const response = await fetch(url, request)
+            if (!response.ok) {
+                const text = await response.text()
+                throw new Error(`${response.status}: ${text}`)
+            }
+
+            const json = await response.json()
+            callback(json)
+        }        
+
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('app', {
+                error: '',
+                fromId: localStorage.getItem('fromId') || '',
+                toId: localStorage.getItem('toId') || '',
+                departure: localStorage.getItem('departure') || '',
+                webhookUrl: localStorage.getItem('webhookUrl') || '',
+                webhookType: localStorage.getItem('webhookType') || '',
+                checkSegments: localStorage.getItem('checkSegments') || ''
+            })
+            const keys = ['fromId', 'toId', 'departure', 'webhookUrl', 'webhookType', 'checkSegments']
+            keys.forEach(key => {
+                Alpine.effect(() => {
+                    localStorage.setItem(key, Alpine.store('app')[key])
+                })
+            })
+        })
+
+        function errorComponent() {
+            return {
+                message: 'test'
+            }
+        }
+
+        function searchComponent() {
+            return {
+                stations: [],
+                routes: [],
+                processing: false,
+                async init() {
+                    this.$store.app.error = ''
+                    try {
+                        await apiCall('/constants', null, (data) => {
+                            this.stations = Object.entries(data)
+                                .map(([id, name]) => ({ id: String(id), name: name }))
+                                .sort((a, b) => a.name.localeCompare(b.name))
+
+                            this.$nextTick(() => {
+                                this.$refs.fromSelect.value = this.$store.app.fromId
+                                this.$refs.toSelect.value = this.$store.app.toId
+                            })      
+                        })
+                    } catch(error) {
+                        this.$store.app.error = 'Constants error: ' + error
+                    }                    
+                    
+                },
+                async search() {
+                    if (this.$store.app.fromId == this.$store.app.toId)
+                        return
+                    if (!this.$store.app.fromId)
+                        return
+                    if (!this.$store.app.toId)
+                        return
+                    if (!this.$store.app.departure)
+                        return
+
+                    this.processing = true
+                    this.$store.app.error = ''
+                    try {
+                        await apiCall(`/routes?stationFromID=${this.$store.app.fromId}&stationToID=${this.$store.app.toId}&departureDate=${this.departureFormatted()}`, null, (data) => {
+                            this.$dispatch('routes-set', data)
+                        })
+                    } catch(error) {
+                        this.$store.app.error = 'Route list error: ' +  error
+                    } finally {
+                        this.processing = false
+                    }
+                },
+                departureFormatted() {
+                    const [year, month, day] = this.$store.app.departure.split('-')
+                    return `${day}.${month}.${year}`
+                }
+            }
+        }
+
+        function routesComponent() {
+            return {
+                routes: [],
+                processing: false,
+                set: function (data) {
+                    this.routes = data
+                },
+                priceRange(route) {
+                    if (route.priceFrom && route.priceTo) {
+                        return route.priceFrom + ' -  ' + route.priceTo
+                    } else if (route.priceFrom) {
+                        return 'from ' + route.priceFrom
+                    } else if (route.priceTo) {
+                        return 'to ' + route.priceTo
+                    } else {
+                        return '-'
+                    }
+                },
+                async watchdogSet(route) {
+                    const webhookUrl = this.$store.app.webhookUrl.trim()
+                    if (!webhookUrl) {
+                        alert('Please configure a webhook URL first.')
+                        return
+                    }                    
+                    const data = {
+                        stationFromID: String(this.$store.app.fromId),
+                        stationToID: String(this.$store.app.toId),
+                        routeID: String(route.id),
+                        webhookURL: webhookUrl,
+                        webhookType: this.$store.app.webhookType.trim(),
+                        checkSegments: this.$store.app.checkSegments === '1'
+                    }
+                    this.processing = true
+                    this.$store.app.error = ''
+                    try {
+                        await apiCall('/watchdog', data, (data) => {
+                            const index = this.routes.findIndex(l => l.id === route.id)
+                            if (index !== -1) {
+                                this.routes[index].watchdog = true
+                            }
+                        })
+                    } catch(error) {
+                        this.$store.app.error = 'Watchdog set error: ' + error
+                    } finally {
+                        this.processing = false
+                    }
+                },
+                async watchdogRemove(route) {
+                    const data = {
+                        routeID: route.id + ""
+                    }
+                    this.processing = true
+                    this.$store.app.error = ''
+                    try {
+                        await apiCall('/watchdog/remove', data, (data) => {
+                            const index = this.routes.findIndex(l => l.id === route.id)
+                            if (index !== -1) {
+                                this.routes[index].watchdog = false
+                            }
+                        })
+                    } catch(error) {
+                        this.$store.app.error = 'Watchdog remove error: ' + error
+                    } finally {
+                        this.processing = false
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="/alpine.js"></script>
+</body>
+
+</html>
