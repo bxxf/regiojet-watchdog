@@ -1,9 +1,9 @@
 @font-face {
-    font-family: "Geist";
+    font-family: Geist;
     font-style: normal;
     font-display: swap;
     font-weight: 100 900;
-    src: url("/assets/geist-latin-wght-normal.woff2") format("woff2-variations");
+    src: url("/assets/geist-latin-wght-normal.woff2") format("woff2");
 }
 
 :root {
@@ -17,6 +17,7 @@
 
     --ink-900: #0e0e0c;
     --ink-700: #2a2a26;
+    --ink-600: #41423b;
     --ink-500: #5a5b53;
     --ink-400: #7a7b71;
     --ink-300: #a4a59a;
@@ -72,12 +73,12 @@ body {
         radial-gradient(1200px 600px at 90% -10%, rgba(250, 204, 21, 0.06), transparent 60%),
         radial-gradient(800px 400px at -10% 10%, rgba(15, 15, 13, 0.025), transparent 70%);
     color: var(--ink-900);
-    font-family: Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
+    text-rendering: optimizelegibility;
     font-feature-settings: "ss01", "cv11";
 }
 
@@ -352,8 +353,7 @@ a {
     transition:
         background var(--duration) var(--ease),
         color var(--duration) var(--ease),
-        border-color var(--duration) var(--ease),
-        transform var(--duration) var(--ease);
+        border-color var(--duration) var(--ease);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -363,10 +363,11 @@ a {
     width: 16px;
     height: 16px;
     fill: none;
-    stroke: currentColor;
+    stroke: currentcolor;
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+    transition: transform var(--duration) var(--ease);
 }
 
 .swap-button:hover {
@@ -375,8 +376,8 @@ a {
     border-color: var(--ink-300);
 }
 
-.swap-button:active {
-    transform: scale(0.96) rotate(180deg);
+.swap-button:active svg {
+    transform: rotate(180deg);
 }
 
 /* ───────── Buttons ───────── */
@@ -419,7 +420,7 @@ a {
     width: 14px;
     height: 14px;
     fill: none;
-    stroke: currentColor;
+    stroke: currentcolor;
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
@@ -676,7 +677,7 @@ a {
 
 .webhook-help code {
     color: var(--ink-700);
-    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-family: "JetBrains Mono", Consolas, monospace;
     font-size: 11px;
     line-height: 1.55;
     white-space: pre;
@@ -751,7 +752,7 @@ a {
     width: 16px;
     height: 16px;
     fill: none;
-    stroke: currentColor;
+    stroke: currentcolor;
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-width: 2;
@@ -1045,6 +1046,13 @@ a {
     gap: 8px;
 }
 
+.route-action-note {
+    color: var(--ink-500);
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 /* ───────── Scrollbar polish ───────── */
 
 .station-menu::-webkit-scrollbar,
@@ -1082,7 +1090,7 @@ a {
     /* allows fade in on swap */
 }
 
-@keyframes fadeSlideIn {
+@keyframes fade-slide-in {
     from {
         opacity: 0;
         transform: translateY(4px);
@@ -1096,7 +1104,7 @@ a {
 #routes-panel,
 .watchdogs-panel,
 .route-row {
-    animation: fadeSlideIn var(--duration) var(--ease);
+    animation: fade-slide-in var(--duration) var(--ease);
 }
 
 /* ───────── Responsive ───────── */

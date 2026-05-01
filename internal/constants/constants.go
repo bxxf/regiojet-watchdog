@@ -39,7 +39,11 @@ type Station struct {
 
 func (c *ConstantsClient) FetchConstants() (map[string]string, error) {
 	client := http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get("https://brn-ybus-pubapi.sa.cz/restapi/consts/locations")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://brn-ybus-pubapi.sa.cz/restapi/consts/locations", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

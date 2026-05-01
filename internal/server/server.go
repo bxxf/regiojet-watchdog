@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +21,7 @@ import (
 	"github.com/bxxf/regiojet-watchdog/internal/database"
 	"github.com/bxxf/regiojet-watchdog/internal/models"
 	"github.com/bxxf/regiojet-watchdog/internal/ui"
+	"github.com/go-redis/redis/v8"
 	"go.uber.org/fx"
 )
 
@@ -288,7 +291,7 @@ func (s *Server) uiWatchdogSetHandler(w http.ResponseWriter, r *http.Request) {
 		WebhookType:   strings.TrimSpace(r.FormValue("webhookType")),
 		CheckSegments: r.FormValue("checkSegments") == "1",
 	}
-	if err := s.setWatchdog(r.Context(), req); err != nil {
+	if _, err := s.setWatchdog(r.Context(), req); err != nil {
 		data.Error = err.Error()
 	} else {
 		routes, err := s.trainClient.FetchRoutes(data.FromID, data.ToID, departureDateForAPI(data.Departure), data.Currency)
@@ -318,7 +321,8 @@ func (s *Server) uiWatchdogRemoveHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	data := s.routeListDataFromRequest(r)
-	if err := s.removeWatchdog(r.Context(), r.FormValue("routeID")); err != nil {
+	routeID := r.FormValue("routeID")
+	if err := s.removeWatchdog(r.Context(), routeID, r.FormValue("subscriptionID")); err != nil {
 		data.Error = err.Error()
 	} else if data.FromID != "" && data.ToID != "" && data.Departure != "" {
 		routes, err := s.trainClient.FetchRoutes(data.FromID, data.ToID, departureDateForAPI(data.Departure), data.Currency)
@@ -327,7 +331,7 @@ func (s *Server) uiWatchdogRemoveHandler(w http.ResponseWriter, r *http.Request)
 			log.Println("Failed to refresh routes after watchdog removal:", err)
 		} else {
 			data.Routes = routes
-			if s.renderRouteRowWithWatchdogs(w, r, data, r.FormValue("routeID")) {
+			if r.Header.Get("HX-Target") != "watchdogs-panel" && s.renderRouteRowWithWatchdogs(w, r, data, routeID) {
 				return
 			}
 		}
@@ -335,6 +339,11 @@ func (s *Server) uiWatchdogRemoveHandler(w http.ResponseWriter, r *http.Request)
 
 	if r.Header.Get("HX-Target") == "watchdogs-panel" {
 		s.renderWatchdogPanel(w, r)
+		if len(data.Routes) > 0 {
+			if err := ui.RouteListOOB(data).Render(r.Context(), w); err != nil {
+				log.Println("Failed to render routes panel:", err)
+			}
+		}
 		return
 	}
 	s.renderRouteListWithWatchdogs(w, r, data)
@@ -398,6 +407,12 @@ func (s *Server) renderWatchdogPanel(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routeListDataFromRequest(r *http.Request) ui.RouteListData {
 	fromID := r.FormValue("fromStationID")
 	toID := r.FormValue("toStationID")
+	if !stationSelectionMatches(s.stations, fromID, r.FormValue("fromSearch")) {
+		fromID = ""
+	}
+	if !stationSelectionMatches(s.stations, toID, r.FormValue("toSearch")) {
+		toID = ""
+	}
 	departure := r.FormValue("departure")
 	currency := normalizeCurrency(r.FormValue("currency"))
 	return ui.RouteListData{
@@ -408,6 +423,13 @@ func (s *Server) routeListDataFromRequest(r *http.Request) ui.RouteListData {
 		Departure: departure,
 		Currency:  currency,
 	}
+}
+
+func stationSelectionMatches(stations []ui.Station, stationID string, searchValue string) bool {
+	if stationID == "" {
+		return strings.TrimSpace(searchValue) == ""
+	}
+	return strings.EqualFold(strings.TrimSpace(searchValue), ui.StationLabel(stations, stationID))
 }
 
 func normalizeCurrency(value string) string {
@@ -452,7 +474,7 @@ func (s *Server) watchdogSetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.setWatchdog(r.Context(), watchdogRequest{
+	subscriptionID, err := s.setWatchdog(r.Context(), watchdogRequest{
 		StationFromID: body.StationFromID,
 		StationToID:   body.StationToID,
 		RouteID:       body.RouteID,
@@ -466,9 +488,11 @@ func (s *Server) watchdogSetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := struct {
-		Message string `json:"message"`
+		Message        string `json:"message"`
+		SubscriptionID string `json:"subscriptionID"`
 	}{
-		Message: "Watchdog set successfully.",
+		Message:        "Watchdog set successfully.",
+		SubscriptionID: subscriptionID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -477,7 +501,7 @@ func (s *Server) watchdogSetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) setWatchdog(ctx context.Context, req watchdogRequest) error {
+func (s *Server) setWatchdog(ctx context.Context, req watchdogRequest) (string, error) {
 	req.StationFromID = strings.TrimSpace(req.StationFromID)
 	req.StationToID = strings.TrimSpace(req.StationToID)
 	req.RouteID = strings.TrimSpace(req.RouteID)
@@ -485,65 +509,113 @@ func (s *Server) setWatchdog(ctx context.Context, req watchdogRequest) error {
 	req.WebhookType = strings.TrimSpace(req.WebhookType)
 
 	if req.StationFromID == "" || req.StationToID == "" {
-		return requestError{status: http.StatusBadRequest, message: "Choose both stations before creating a watchdog."}
+		return "", requestError{status: http.StatusBadRequest, message: "Choose both stations before creating a watchdog."}
 	}
 	if req.RouteID == "" {
-		return requestError{status: http.StatusBadRequest, message: "Choose a route before creating a watchdog."}
+		return "", requestError{status: http.StatusBadRequest, message: "Choose a route before creating a watchdog."}
 	}
 	if req.WebhookURL == "" {
-		return requestError{status: http.StatusBadRequest, message: "Webhook URL is missing."}
+		return "", requestError{status: http.StatusBadRequest, message: "Webhook URL is missing."}
 	}
 	if req.WebhookType != "discord" && req.WebhookType != "simple" {
-		return requestError{status: http.StatusBadRequest, message: "Choose Discord or HTTP POST as the webhook type."}
+		return "", requestError{status: http.StatusBadRequest, message: "Choose Discord or HTTP POST as the webhook type."}
+	}
+	if err := validateWebhookURL(ctx, req.WebhookURL); err != nil {
+		return "", err
 	}
 
 	routeInt, err := strconv.Atoi(req.RouteID)
 	if err != nil {
-		return requestError{status: http.StatusBadRequest, message: "routeID must be a number"}
+		return "", requestError{status: http.StatusBadRequest, message: "routeID must be a number"}
 	}
 
 	routeDetails, err := s.trainClient.GetRouteDetails(routeInt, req.StationFromID, req.StationToID)
 	if err != nil {
 		log.Println("Failed to fetch route details:", err)
-		return requestError{status: http.StatusInternalServerError, message: "failed to fetch route details"}
+		return "", requestError{status: http.StatusInternalServerError, message: "failed to fetch route details"}
 	}
 
 	departureTime, err := time.Parse(time.RFC3339, routeDetails.DepartureTime)
 	if err != nil {
 		log.Println("Failed to parse departure time:", err)
-		return requestError{status: http.StatusInternalServerError, message: "failed to parse departure time"}
+		return "", requestError{status: http.StatusInternalServerError, message: "failed to parse departure time"}
 	}
 
 	departureDuration := time.Until(departureTime)
 	if departureDuration <= 0 {
-		return requestError{status: http.StatusBadRequest, message: "departure has already passed"}
-	}
-
-	jsonWebhook, err := json.Marshal(models.Webhook{
-		WebhookURL:    req.WebhookURL,
-		WebhookType:   req.WebhookType,
-		StationFromID: req.StationFromID,
-		StationToID:   req.StationToID,
-		RouteID:       req.RouteID,
-		CheckSegments: req.CheckSegments,
-	})
-	if err != nil {
-		log.Println("Failed to marshal JSON payload:", err)
-		return requestError{status: http.StatusBadRequest, message: "failed to marshal JSON payload"}
+		return "", requestError{status: http.StatusBadRequest, message: "departure has already passed"}
 	}
 
 	subscriptionID, err := randomID()
 	if err != nil {
 		log.Println("Failed to generate watchdog id:", err)
-		return requestError{status: http.StatusInternalServerError, message: "failed to generate watchdog id"}
+		return "", requestError{status: http.StatusInternalServerError, message: "failed to generate watchdog id"}
+	}
+
+	jsonWebhook, err := json.Marshal(models.Webhook{
+		WebhookURL:     req.WebhookURL,
+		WebhookType:    req.WebhookType,
+		StationFromID:  req.StationFromID,
+		StationToID:    req.StationToID,
+		RouteID:        req.RouteID,
+		SubscriptionID: subscriptionID,
+		FromName:       ui.StationLabel(s.stations, req.StationFromID),
+		ToName:         ui.StationLabel(s.stations, req.StationToID),
+		DepartureTime:  routeDetails.DepartureTime,
+		ArrivalTime:    routeDetails.ArrivalTime,
+		CheckSegments:  req.CheckSegments,
+	})
+	if err != nil {
+		log.Println("Failed to marshal JSON payload:", err)
+		return "", requestError{status: http.StatusBadRequest, message: "failed to marshal JSON payload"}
 	}
 
 	key := "watchdog:" + req.RouteID + ":" + subscriptionID
 	if err := s.database.RedisClient.Set(ctx, key, jsonWebhook, departureDuration).Err(); err != nil {
 		log.Println("Failed to store watchdog:", err)
-		return requestError{status: http.StatusInternalServerError, message: "failed to store watchdog"}
+		return "", requestError{status: http.StatusInternalServerError, message: "failed to store watchdog"}
+	}
+	return subscriptionID, nil
+}
+
+func validateWebhookURL(ctx context.Context, rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Hostname() == "" {
+		return requestError{status: http.StatusBadRequest, message: "Webhook URL must be a valid HTTP or HTTPS URL."}
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return requestError{status: http.StatusBadRequest, message: "Webhook URL must use HTTP or HTTPS."}
+	}
+
+	host := parsed.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateWebhookIP(ip) {
+			return requestError{status: http.StatusBadRequest, message: "Webhook URL cannot point to a private or local network address."}
+		}
+		return nil
+	}
+
+	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIP(lookupCtx, "ip", host)
+	if err != nil || len(ips) == 0 {
+		return requestError{status: http.StatusBadRequest, message: "Webhook URL host could not be resolved."}
+	}
+	for _, ip := range ips {
+		if isPrivateWebhookIP(ip) {
+			return requestError{status: http.StatusBadRequest, message: "Webhook URL cannot point to a private or local network address."}
+		}
 	}
 	return nil
+}
+
+func isPrivateWebhookIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		ip.IsMulticast()
 }
 
 func watchdogErrorStatus(err error) int {
@@ -561,7 +633,8 @@ func (s *Server) watchdogRemoveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := struct {
-		RouteID string `json:"routeID"`
+		RouteID        string `json:"routeID"`
+		SubscriptionID string `json:"subscriptionID"`
 	}{}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -575,7 +648,7 @@ func (s *Server) watchdogRemoveHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.removeWatchdog(r.Context(), body.RouteID); err != nil {
+	if err := s.removeWatchdog(r.Context(), body.RouteID, body.SubscriptionID); err != nil {
 		http.Error(w, err.Error(), watchdogErrorStatus(err))
 		return
 	}
@@ -592,22 +665,17 @@ func (s *Server) watchdogRemoveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) removeWatchdog(ctx context.Context, routeID string) error {
+func (s *Server) removeWatchdog(ctx context.Context, routeID string, subscriptionID string) error {
 	routeID = strings.TrimSpace(routeID)
+	subscriptionID = strings.TrimSpace(subscriptionID)
 	if routeID == "" {
 		return requestError{status: http.StatusBadRequest, message: "routeID is required"}
 	}
-
-	keys, err := s.watchdogKeysForRoute(ctx, routeID)
-	if err != nil {
-		log.Println("Failed to find watchdog:", err)
-		return requestError{status: http.StatusInternalServerError, message: "failed to remove watchdog"}
-	}
-	if len(keys) == 0 {
-		return requestError{status: http.StatusNotFound, message: "watchdog not found"}
+	if subscriptionID == "" {
+		return requestError{status: http.StatusBadRequest, message: "subscriptionID is required"}
 	}
 
-	deleted, err := s.database.RedisClient.Del(ctx, keys...).Result()
+	deleted, err := s.database.RedisClient.Del(ctx, "watchdog:"+routeID+":"+subscriptionID).Result()
 	if err != nil {
 		log.Println("Failed to remove watchdog:", err)
 		return requestError{status: http.StatusInternalServerError, message: "failed to remove watchdog"}
@@ -618,77 +686,49 @@ func (s *Server) removeWatchdog(ctx context.Context, routeID string) error {
 	return nil
 }
 
-func (s *Server) watchdogKeysForRoute(ctx context.Context, routeID string) ([]string, error) {
-	var keys []string
-	iter := s.database.RedisClient.Scan(ctx, 0, "watchdog:*", 0).Iterator()
-	for iter.Next(ctx) {
-		key := iter.Val()
-		if key == "watchdog:"+routeID || strings.HasPrefix(key, "watchdog:"+routeID+":") {
-			keys = append(keys, key)
-			continue
-		}
-
-		value, err := s.database.RedisClient.Get(ctx, key).Result()
-		if err != nil {
-			return nil, err
-		}
-		if watchdogValueRouteID(value) == routeID {
-			keys = append(keys, key)
-		}
-	}
-	if err := iter.Err(); err != nil {
-		return nil, err
-	}
-	return keys, nil
-}
-
-func watchdogValueRouteID(value string) string {
-	var webhook models.Webhook
-	if err := json.Unmarshal([]byte(value), &webhook); err == nil {
-		return webhook.RouteID
-	}
-
-	parts := strings.Split(value, ";;")
-	if len(parts) == 4 {
-		return parts[3]
-	}
-	return ""
-}
-
 func (s *Server) watchdogsForUI(ctx context.Context) ([]ui.WatchdogView, error) {
 	var watchdogs []ui.WatchdogView
-	iter := s.database.RedisClient.Scan(ctx, 0, "watchdog:*", 0).Iterator()
+	iter := s.database.RedisClient.Scan(ctx, 0, "watchdog:*:*", 0).Iterator()
 	for iter.Next(ctx) {
-		value, err := s.database.RedisClient.Get(ctx, iter.Val()).Result()
+		key := iter.Val()
+		value, err := s.database.RedisClient.Get(ctx, key).Result()
 		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
 			return nil, err
 		}
-		webhook, err := parseStoredWebhook(value)
+		var webhook models.Webhook
+		err = json.Unmarshal([]byte(value), &webhook)
 		if err != nil {
 			log.Println("Failed to parse watchdog value:", err)
 			continue
 		}
+		if webhook.SubscriptionID == "" {
+			webhook.SubscriptionID = subscriptionIDFromKey(key, webhook.RouteID)
+		}
 
 		view := ui.WatchdogView{
-			RouteID:       webhook.RouteID,
-			FromName:      ui.StationLabel(s.stations, webhook.StationFromID),
-			ToName:        ui.StationLabel(s.stations, webhook.StationToID),
-			WebhookType:   webhook.WebhookType,
-			CheckSegments: webhook.CheckSegments,
+			RouteID:        webhook.RouteID,
+			SubscriptionID: webhook.SubscriptionID,
+			FromName:       webhook.FromName,
+			ToName:         webhook.ToName,
+			DepartureTime:  formatWatchdogTime(webhook.DepartureTime),
+			ArrivalTime:    formatWatchdogTime(webhook.ArrivalTime),
+			WebhookType:    webhook.WebhookType,
+			CheckSegments:  webhook.CheckSegments,
+		}
+		if view.FromName == "" {
+			view.FromName = ui.StationLabel(s.stations, webhook.StationFromID)
+		}
+		if view.ToName == "" {
+			view.ToName = ui.StationLabel(s.stations, webhook.StationToID)
 		}
 		if view.FromName == "" {
 			view.FromName = "Unknown station"
 		}
 		if view.ToName == "" {
 			view.ToName = "Unknown station"
-		}
-
-		routeID, err := strconv.Atoi(webhook.RouteID)
-		if err == nil {
-			if details, err := s.trainClient.GetRouteDetails(routeID, webhook.StationFromID, webhook.StationToID); err == nil {
-				view.DepartureTime = formatWatchdogTime(details.DepartureTime)
-				view.ArrivalTime = formatWatchdogTime(details.ArrivalTime)
-			}
 		}
 
 		watchdogs = append(watchdogs, view)
@@ -705,24 +745,12 @@ func (s *Server) watchdogsForUI(ctx context.Context) ([]ui.WatchdogView, error) 
 	return watchdogs, nil
 }
 
-func parseStoredWebhook(value string) (models.Webhook, error) {
-	var webhook models.Webhook
-	if err := json.Unmarshal([]byte(value), &webhook); err == nil {
-		return webhook, nil
+func subscriptionIDFromKey(key string, routeID string) string {
+	prefix := "watchdog:" + routeID + ":"
+	if strings.HasPrefix(key, prefix) {
+		return strings.TrimPrefix(key, prefix)
 	}
-
-	parts := strings.Split(value, ";;")
-	if len(parts) != 4 {
-		return models.Webhook{}, errors.New("invalid watchdog value")
-	}
-	return models.Webhook{
-		WebhookURL:    parts[0],
-		StationFromID: parts[1],
-		StationToID:   parts[2],
-		RouteID:       parts[3],
-		WebhookType:   "discord",
-		CheckSegments: true,
-	}, nil
+	return strings.TrimPrefix(key, "watchdog:")
 }
 
 func formatWatchdogTime(value string) string {

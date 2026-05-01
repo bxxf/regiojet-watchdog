@@ -211,7 +211,7 @@ flowchart LR
 
 | Topic | Detail |
 | --- | --- |
-| Persistence | Watchdogs are stored as Redis keys matching `watchdog:*`. |
+| Persistence | Watchdogs are stored as Redis keys matching `watchdog:<routeID>:<subscriptionID>`. |
 | Expiration | Watchdogs expire at the train departure time. |
 
 ## Troubleshooting
@@ -234,7 +234,7 @@ Most users should use the web UI. These endpoints are useful for scripts or inte
 | `/constants` | `GET` | List train station IDs. |
 | `/routes` | `GET` | Search routes by station IDs and date. |
 | `/watchdog` | `POST` | Create a watchdog. |
-| `/watchdog/remove` | `POST` | Remove watchdogs for a route. |
+| `/watchdog/remove` | `POST` | Remove one watchdog subscription. |
 
 ### Get Stations
 
@@ -303,7 +303,18 @@ Content-Type: application/json
 | `webhookType` | Yes | `discord` or `simple`. `simple` means HTTP POST JSON. |
 | `checkSegments` | No | Enables same-train segment search. |
 
-### Remove Watchdogs For A Route
+Response:
+
+```json
+{
+  "message": "Watchdog set successfully.",
+  "subscriptionID": "c1096e0a3f3d4a3f9b1f0f40f2e7cf22"
+}
+```
+
+Keep `subscriptionID` if you want to remove this exact subscription through the API later.
+
+### Remove A Watchdog Subscription
 
 ```http
 POST /watchdog/remove
@@ -312,9 +323,15 @@ Content-Type: application/json
 
 ```json
 {
-  "routeID": "6618452367"
+  "routeID": "6618452367",
+  "subscriptionID": "c1096e0a3f3d4a3f9b1f0f40f2e7cf22"
 }
 ```
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `routeID` | Yes | Route ID from the original watchdog. |
+| `subscriptionID` | Yes | Subscription ID returned by `POST /watchdog`. |
 
 ## Development
 

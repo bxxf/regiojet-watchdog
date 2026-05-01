@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
 	"time"
 
 	clientpkg "github.com/bxxf/regiojet-watchdog/internal/client"
@@ -46,13 +45,8 @@ func (c *Checker) handleKey(key string) {
 	var w models.Webhook
 	err = json.Unmarshal([]byte(value), &w)
 	if err != nil {
-		legacyWebhook, legacyErr := parseLegacyWebhook(value)
-		if legacyErr != nil {
-			log.Println("Failed to parse value:", err)
-			return
-		}
-		w = legacyWebhook
-		log.Println("Legacy watchdog value detected for key", key)
+		log.Println("Failed to parse value:", err)
+		return
 	}
 
 	routeDetails, freeSeatsResponse, err := c.fetchRouteDetails(w.RouteID, w.StationFromID, w.StationToID)
@@ -61,7 +55,7 @@ func (c *Checker) handleKey(key string) {
 	}
 
 	if routeDetails != nil && routeDetails.FreeSeatsCount > 0 {
-		if freeSeatsResponse != nil {
+		if freeSeatsResponse != nil && len(*freeSeatsResponse) > 0 {
 			c.notifyService.Dispatch(*freeSeatsResponse, *routeDetails, routeDetails.DepartureTime, w.WebhookType, w.WebhookURL)
 			if w.CheckSegments {
 				c.notifyAlternativeSegments(w.RouteID, w.StationFromID, w.StationToID, routeDetails.DepartureTime, w.WebhookType, w.WebhookURL)
@@ -76,31 +70,21 @@ func (c *Checker) handleKey(key string) {
 	}
 }
 
-func parseLegacyWebhook(value string) (models.Webhook, error) {
-	parts := strings.Split(value, ";;")
-	if len(parts) != 4 {
-		return models.Webhook{}, fmt.Errorf("invalid legacy watchdog value format")
-	}
-
-	return models.Webhook{
-		WebhookURL:    parts[0],
-		StationFromID: parts[1],
-		StationToID:   parts[2],
-		RouteID:       parts[3],
-		WebhookType:   "discord",
-		CheckSegments: true,
-	}, nil
-}
-
 func (c *Checker) fetchRouteDetails(routeIDStr, stationFromID, stationToID string) (*models.RouteDetails, *models.FreeSeatsResponse, error) {
 	routeID, err := strconv.Atoi(routeIDStr)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	freeSeatsResponse, err := c.trainClient.GetFreeSeats(routeID, stationFromID, stationToID)
 	routeDetails, err := c.trainClient.GetRouteDetails(routeID, stationFromID, stationToID)
-	return routeDetails, &freeSeatsResponse, err
+	if err != nil {
+		return nil, nil, err
+	}
+	freeSeatsResponse, err := c.trainClient.GetFreeSeats(routeID, stationFromID, stationToID)
+	if err != nil {
+		return routeDetails, nil, err
+	}
+	return routeDetails, &freeSeatsResponse, nil
 }
 
 func (c *Checker) notifyAlternativeSegments(routeIDStr, stationFromID, stationToID, departureTimeStr, webhookType string, webhookURL string) {
@@ -127,7 +111,7 @@ func (c *Checker) periodicallyCheck() {
 	for {
 		select {
 		case <-ticker.C:
-			keys, err := c.database.RedisClient.Keys(context.Background(), "watchdog:*").Result()
+			keys, err := c.database.RedisClient.Keys(context.Background(), "watchdog:*:*").Result()
 			if err != nil {
 				log.Println("Failed to fetch keys:", err)
 				continue

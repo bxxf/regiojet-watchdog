@@ -91,10 +91,15 @@ type Stop struct {
 }
 
 type Webhook struct {
-	WebhookURL    string `json:"webhookUrl"`
-	WebhookType   string `json:"webhookType"`
-	StationFromID string `json:"stationFromId"`
-	StationToID   string `json:"stationToId"`
-	RouteID       string `json:"routeId"`
-	CheckSegments bool   `json:"checkSegments"`
+	WebhookURL     string `json:"webhookUrl"`
+	WebhookType    string `json:"webhookType"`
+	StationFromID  string `json:"stationFromId"`
+	StationToID    string `json:"stationToId"`
+	RouteID        string `json:"routeId"`
+	SubscriptionID string `json:"subscriptionId,omitempty"`
+	FromName       string `json:"fromName,omitempty"`
+	ToName         string `json:"toName,omitempty"`
+	DepartureTime  string `json:"departureTime,omitempty"`
+	ArrivalTime    string `json:"arrivalTime,omitempty"`
+	CheckSegments  bool   `json:"checkSegments"`
 }

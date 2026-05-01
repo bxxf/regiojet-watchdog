@@ -27,13 +27,14 @@ type PageData struct {
 }
 
 type WatchdogView struct {
-	RouteID       string
-	FromName      string
-	ToName        string
-	DepartureTime string
-	ArrivalTime   string
-	WebhookType   string
-	CheckSegments bool
+	RouteID        string
+	SubscriptionID string
+	FromName       string
+	ToName         string
+	DepartureTime  string
+	ArrivalTime    string
+	WebhookType    string
+	CheckSegments  bool
 }
 
 type StationOptionsData struct {

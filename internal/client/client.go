@@ -134,15 +134,6 @@ func hasVehicleType(vehicleTypes []string, vehicleType string) bool {
 func (c *TrainClient) hasWatchdog(routeID string) bool {
 	ctx := context.Background()
 	exactKey := "watchdog:" + routeID
-	exists, err := c.database.RedisClient.Exists(ctx, exactKey).Result()
-	if err != nil {
-		c.logger.Error("watchdog lookup failed", zap.String("key", exactKey), zap.Error(err))
-		return false
-	}
-	if exists > 0 {
-		return true
-	}
-
 	iter := c.database.RedisClient.Scan(ctx, 0, exactKey+":*", 1).Iterator()
 	if iter.Next(ctx) {
 		return true

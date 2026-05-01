@@ -18,7 +18,7 @@ templ Page(data PageData) {
 				<header class="page-header">
 					<h1>RegioJet Watchdog</h1>
 				</header>
-				<form id="route-form">
+				<form id="route-form" hx-get="/ui/routes" hx-target="#routes-panel" hx-swap="outerHTML">
 					<section class="control-grid">
 						@SearchPanel(data)
 						@WebhookPanel(data)
@@ -78,10 +78,6 @@ templ SearchPanel(data PageData) {
 			<button
 				class="primary-button"
 				type="submit"
-				hx-get="/ui/routes"
-				hx-target="#routes-panel"
-				hx-swap="outerHTML"
-				hx-include="#route-form"
 			>
 				Search routes
 			</button>
@@ -102,6 +98,7 @@ templ StationPicker(target string, label string, selectedID string, selectedName
 			hx-get={ "/ui/stations?target=" + target }
 			hx-trigger="focus, input changed delay:120ms, search"
 			hx-target={ "#" + target + "StationMenu" }
+			hx-swap="innerHTML"
 			hx-include="#route-form"
 		/>
 		<input id={ target + "StationID" } name={ target + "StationID" } type="hidden" value={ selectedID }/>
@@ -202,6 +199,17 @@ templ StationOptions(data StationOptionsData) {
 
 templ RouteList(data RouteListData) {
 	<section id="routes-panel" class="routes-panel">
+		@RouteListContent(data)
+	</section>
+}
+
+templ RouteListOOB(data RouteListData) {
+	<section id="routes-panel" class="routes-panel" hx-swap-oob="outerHTML">
+		@RouteListContent(data)
+	</section>
+}
+
+templ RouteListContent(data RouteListData) {
 		<div class="routes-toolbar">
 			<div>
 				<h2>Departures</h2>
@@ -242,7 +250,6 @@ templ RouteList(data RouteListData) {
 				}
 			</div>
 		}
-	</section>
 }
 
 templ WatchdogPanel(watchdogs []WatchdogView) {
@@ -318,12 +325,12 @@ templ WatchdogRow(watchdog WatchdogView) {
 			</div>
 			<button
 				type="button"
-				name="routeID"
-				value={ watchdog.RouteID }
 				class="danger-button compact"
 				hx-post="/ui/watchdog/remove"
 				hx-target="#watchdogs-panel"
 				hx-swap="outerHTML"
+				hx-include="#route-form"
+				hx-vals={ "{\"routeID\":\"" + watchdog.RouteID + "\",\"subscriptionID\":\"" + watchdog.SubscriptionID + "\"}" }
 			>
 				Remove
 			</button>
@@ -375,18 +382,7 @@ templ RouteRow(route models.Route, data RouteListData) {
 			</div>
 			<div class="route-actions">
 				if route.Watchdog {
-					<button
-						type="button"
-						name="routeID"
-						value={ route.ID }
-						class="danger-button compact"
-						hx-post="/ui/watchdog/remove"
-						hx-target="#routes-panel"
-						hx-swap="outerHTML show:none"
-						hx-include="#route-form"
-					>
-						Remove
-					</button>
+					<span class="route-action-note">Managed below</span>
 				} else {
 					<button
 						type="button"
